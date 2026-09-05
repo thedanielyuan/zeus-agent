@@ -15,6 +15,20 @@
       "when": 1788623854898,
       "tag": "0001_lame_azazel",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788626225731,
+      "tag": "0002_m2_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788626226151,
+      "tag": "0003_m2_history_search",
+      "breakpoints": true
     }
   ]
 }

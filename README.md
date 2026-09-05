@@ -2,13 +2,15 @@
 
 A self-hosted chat interface for talking to any AI model through one UI. Version 1 ships with Claude Sonnet 5; other models plug in through a small provider adapter.
 
-**Status:** M1 chat core implemented and validated offline. Turns, partial responses, thinking, and terminal details persist in SQLite; Stop, Retry, Continue, provider errors, ten-minute timeouts, and sanitized syntax-highlighted Markdown are supported. Durable history browsing/search/export follows in M2; cost accounting follows in M3. Real provider acceptance has not been run. See the [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), and [M1 validation](docs/M1-VALIDATION.md).
+**Status:** M1 chat core and M2 history implemented and validated offline. Conversations, settings, search, automatic titles, Markdown/JSON exports and 30-day soft deletion are backed by SQLite. Cost accounting and edit-and-regenerate follow in M3. Real provider acceptance has not been run. See the [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), and [M2 validation](docs/M2-VALIDATION.md).
 
 ## What it does
 
 - Streams replies token by token, with Stop, Retry, and Continue.
 - Shows Claude's summarized thinking in a collapsible panel and lets you pick an effort level.
-- Stores chat turns in a local SQLite file. Sidebar browsing, search, rename, and Markdown export currently use this browser session; loading saved history and JSON export arrive in M2.
+- Restores saved conversations at their own URLs, with searchable history, editable automatic titles and Markdown/JSON downloads.
+- Saves conversation settings and global defaults, appearance and thinking visibility in SQLite.
+- Hides deleted chats immediately and removes their stored records after 30 days, with cleanup at startup and hourly while running.
 - Records final token usage, with prompt caching enabled. Interrupted usage stays unknown; cost tracking arrives in M3.
 - Never sends your API key to the browser and never sends anything anywhere except the model vendor.
 
@@ -36,7 +38,7 @@ Then start the dev server (it binds to loopback only):
 pnpm dev
 ```
 
-Open http://127.0.0.1:3000. The database is created at `./data/zeus.db` on the first chat turn. Existing databases migrate automatically when opened. Back up the database before upgrading.
+Open http://127.0.0.1:3000. The database is created at `./data/zeus.db` on the first page load. Existing databases migrate automatically when opened. Back up the database and restart the server when upgrading so pending migrations and recovery run before serving history.
 
 ## Run without an API key
 
@@ -53,6 +55,8 @@ pnpm dev:mock
 ```
 
 Open http://127.0.0.1:3001. Type `slow` for a long reply (try Stop), `refuse` for a refusal, `cut off` for Continue, or `code` for syntax highlighting. Error fixtures: `auth error`, `rate limit`, `error` (overload), and `retry once` (fails through the SDK retries, then succeeds when you press Retry).
+
+The mock also supplies automatic titles. With a real provider, the first completed reply triggers one additional low-effort title call (up to 128 output tokens, 30-second deadline); a failed title leaves the first-message fallback.
 
 Mock turns use `./data/mock.db`, separate from your real chat database. The script supplies a dummy key and clears any inherited auth token. Stop another dev server in the same checkout before starting this one.
 
@@ -102,7 +106,7 @@ Add the model to `src/lib/models/registry.ts`. If it is a new vendor, implement 
 |---|---|
 | M0 | Scaffold: one streamed round-trip from the browser |
 | M1 | Chat core: stop, retry, errors, refusal handling, Markdown |
-| M2 | History: persistence, sidebar, search, export, auto-titles |
+| M2 | Implemented: durable history, settings, sidebar, search, export, auto-titles, retention |
 | M3 | Polish: cost tracking, edit and regenerate, theme, accessibility |
 | M4 | Second provider and mid-conversation model switching |
 

@@ -167,24 +167,27 @@ Empty state: a centered model picker and system prompt field with three example 
 
 States that must be designed: empty, streaming, interrupted, error with retry, refusal, cut-off with continue, missing API key.
 
-### Chat core implementation status (2026-09-06)
+### Implementation status (2026-09-06)
 
-M1 persists user messages, assistant responses, thinking, stop/refusal details, final usage, and current conversation settings in SQLite. The server rebuilds provider context from stored messages. Sidebar browsing, search, rename, and export still operate on the browser session; restoring that interface after a reload belongs to M2. Theme remains a device preference.
+M1 and M2 are implemented and validated offline. SQLite owns the transcript, conversation metadata, search index and global preferences. Each conversation has a reloadable `/c/[id]` URL; the home page opens the newest saved chat. Real-provider acceptance remains unrun.
 
 | Requirement | Current status |
 |---|---|
-| FR-C1, FR-C2, FR-C4, FR-C5 | Implemented: streaming, Stop with durable partial text, role/model/timestamps, and an auto-growing keyboard composer. Mock-backed browser QA passes; real provider acceptance remains unrun. |
-| FR-C3, FR-X3 | Sanitized Markdown, tables, safe links, and fenced code with Shiki syntax highlighting and copy controls implemented. Highlighted tokens render as React text; unknown languages fall back to plain text. |
-| FR-C7, FR-C8 | Regenerate/Retry reuses the last stored user row and replaces its assistant suffix without duplicating earlier context; message and code copying implemented. |
-| FR-H2, FR-H4, FR-H6 | Sidebar groups, conversation switching, title/content search, renaming, and Markdown export implemented for session history. SQLite search, JSON export, and durable history remain pending. |
-| FR-S1, FR-S3, FR-S4 | Per-conversation controls and collapsed thinking summaries implemented. Settings are stored on each send and apply to that turn. Loading saved settings and the global hide-thinking preference remain in M2. |
-| FR-S2 | Light/dark appearance persists on the device. Database-backed global defaults remain pending. |
-| FR-E1 to FR-E4, FR-M7 | Missing-key setup; distinct authentication, rate limit, overload, and server errors; durable interrupted replies; refusal details; append-only Continue; and a server-enforced ten-minute timeout implemented. Unknown interrupted usage stays null. |
-| FR-M3, FR-H1 | Conversation model and turn records are stored in SQLite. Durable sidebar retrieval and last-used defaults across reloads remain in M2. |
-| FR-X1, FR-X2, FR-X4 | Server-only imports enforced, exception text redacted, same-origin mutations and a 1 MB request limit checked before writes, loopback binding retained, and Next telemetry disabled in app scripts. |
-| FR-H3, FR-H5, FR-C6, FR-U2, FR-U3 | Generated titles, soft-delete retention, edit-and-regenerate, and cost accounting remain pending. Removing a chat from this session requires confirmation and explicitly explains that saved server messages remain. |
+| FR-C1, FR-C2, FR-C4, FR-C5 | Streaming, Stop with durable partial text, role/model/timestamps, and an auto-growing keyboard composer implemented. Mock-backed browser QA passes. |
+| FR-C3, FR-X3 | Sanitized Markdown, safe links, fenced code with Shiki highlighting and copy controls. Highlighted tokens render as React text; unknown languages fall back to plain text. |
+| FR-C7, FR-C8 | Regenerate/Retry reuses the last stored user row and replaces its assistant suffix. Message/code copying implemented. |
+| FR-H1, FR-H2, FR-M3 | Durable conversation URLs, newest-first paginated sidebar with date groups and relative times, saved messages/metadata, and last-used model defaults. Reloads restore full terminal states and null interrupted usage. |
+| FR-H3 | After the first completed textual reply, a bounded low-effort call to the same model generates a title. A durable claim prevents duplicate calls; failures keep the first-message fallback. Manual names win over late results. Existing M1 chats receive fallback names without retrospective provider calls. |
+| FR-H4 | Case-insensitive literal substring search across saved titles/messages, backed by FTS5 trigram indexes; one/two-character queries scan source text. Results are deduplicated and ranked by the latest matching message or title before pagination. |
+| FR-H5 | Confirmation before soft deletion; deleted chats disappear from browsing, search, detail and export. Cleanup runs at first database access and hourly, removing rows retained for at least 30 days. |
+| FR-H6 | Download Markdown transcripts or JSON containing complete stored records, including settings, thinking, refusal/error metadata, usage and nullable cost. |
+| FR-S1, FR-S3, FR-S4 | Saved model, system prompt, effort and response limit apply to the next message. Thinking remains collapsed by default; a saved global preference hides it while retaining summaries in exports. |
+| FR-S2 | Database-backed default model/system prompt/effort, theme and hide-thinking preference. “Use for new chats” saves the current model, effort and instructions as defaults. |
+| FR-E1 to FR-E4, FR-M7 | Missing-key setup, distinct provider errors, durable interrupted replies, refusal details, Continue and a ten-minute turn timeout. States and actions survive reload. |
+| FR-X1, FR-X2, FR-X4 | Server-only imports, redacted exceptions, same-origin mutations, 1 MB request limits, loopback binding and disabled Next telemetry. New history/settings APIs use these same boundaries. |
+| FR-C6, FR-U2, FR-U3 | Edit-and-regenerate and cost accounting remain in M3. Token usage is stored; message cost remains null. |
 
-Validation: 80 offline tests cover provider mapping, real SQLite transactions/checkpoints/reopening, all architecture §5 edges, deadlines, overlapping turns, Retry, prefix stability, API validation, SSE, and safe syntax highlighting. Mock-backed browser QA covers streaming, Stop, Retry, refusal, Continue, distinct errors, and session navigation. See [M1 validation](M1-VALIDATION.md). No real model API calls were run.
+Validation is documented in [M1 validation](M1-VALIDATION.md) and [M2 validation](M2-VALIDATION.md). Tests cover SQLite migration/reopening, FTS synchronization, title races/timeouts, retention, API validation and all architecture §5 chat edges. Synthetic queries exercise 1,000 conversations and 100,000 messages; full NFR and real-model acceptance remain unverified. No paid model calls were run.
 
 ## 9. Success metrics
 

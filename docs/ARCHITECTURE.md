@@ -266,10 +266,12 @@ sequenceDiagram
   P-->>T: usage + stop
   T->>DB: finalize row (content, thinking, usage, stop/refusal, status)
   T-->>UI: usage + stop frames, close stream
-  Note over T: Auto-title and cost calculation arrive in M2/M3
+  R->>P: after(response): bounded low-effort title call
+  R->>DB: conditionally save title
+  Note over T: Cost calculation remains in M3
 ```
 
-M1's request is `{ conversationId, userMessageId, action: "send" | "retry", content, modelId, system?, effort?, maxOutputTokens? }`. Both IDs are client-generated ULIDs and survive Retry even if the original response never arrived. The first send creates the conversation; subsequent requests rebuild context from SQLite, never a browser-supplied transcript. Settings are saved in the same transaction as the turn. A response header `X-Assistant-Message-Id` replaces the optimistic assistant ID.
+The chat request is `{ conversationId, userMessageId, action: "send" | "retry", content, modelId, system?, effort?, maxOutputTokens? }`. Both IDs are client-generated ULIDs and survive Retry even if the original response never arrived. The first send creates a conversation if it does not already exist; M2 also exposes an explicit create endpoint. Subsequent requests rebuild context from SQLite, never a browser-supplied transcript. Settings are saved in the same transaction as the turn. A response header `X-Assistant-Message-Id` replaces the optimistic assistant ID.
 
 `repo/messages.ts` uses an immediate transaction to insert the user and streaming assistant together, or truncate the last assistant suffix for Retry. An active streaming row blocks another turn in the conversation with HTTP 409. Reused IDs must match the same conversation and last user content. A duplicate Send cannot silently run another provider call. Completed rows are never updated in place.
 
@@ -308,6 +310,8 @@ erDiagram
   conversations {
     text id PK "ULID"
     text title
+    text title_status "pending | generating | generated | manual | failed"
+    int title_updated_at
     text model_id
     text system_prompt
     text effort
@@ -341,11 +345,24 @@ erDiagram
   }
 ```
 
-Current indexes: `messages(conversation_id, seq)` unique and `conversations(updated_at)`. M2 will add deleted-row filtering and FTS5 tables/triggers for title and message search; they are not implemented yet.
+Indexes: `messages(conversation_id, seq)` unique, `conversations(updated_at)`, and `conversations(deleted_at, updated_at, id)`. M2 adds external-content FTS5 trigram tables over titles and message text. Insert/update/delete triggers keep indexes synchronized, including streaming checkpoints, Retry suffix truncation and cascading cleanup. A custom generated migration backfills existing rows.
+
+Search is a literal substring, not user-supplied FTS syntax. Three-or-more-character queries use a quoted MATCH phrase; shorter queries use a deterministic case-insensitive substring function over source text. Title matches use `title_updated_at`; message matches use `created_at`. A window function selects each conversation's newest match before pagination. Deleted conversations are excluded in both paths.
 
 Timestamps are Unix milliseconds. IDs are ULIDs so they sort by creation time. SQLite runs in WAL mode with `synchronous = NORMAL`.
 
 The conversation sent to the provider is rebuilt from `messages` on every turn: rows with status `error` or `refused` are skipped, `interrupted` rows are included with their partial text, empty rows are omitted, and consecutive same-role rows are allowed by the API so no merging is needed. The new user message is always last, so requests never use an assistant prefill.
+
+### History, settings and title lifecycle (M2)
+
+- `GET /api/conversations?q=&limit=100&offset=0` returns summaries plus `hasMore`; it never returns whole transcripts for sidebar browsing. `POST` creates an empty chat using saved global defaults.
+- `GET /api/conversations/[id]` returns the conversation and messages in sequence order. `PATCH` changes the title or settings; `DELETE` soft-deletes. Settings, rename and delete reject active streaming rows with HTTP 409. A completed message's content is never updated by these APIs.
+- `GET /api/conversations/[id]/export?format=md|json` downloads a database snapshot. JSON preserves every stored field; Markdown is a readable transcript with thinking and terminal metadata. Responses use `no-store` and attachment headers.
+- `GET/PATCH /api/settings` owns validated global preferences in the `settings` table. Conversation creation/sends remember the last-used model. Theme and hide-thinking are global; per-conversation instructions/effort/output limits are saved independently.
+- Home redirects to the newest saved chat, or shows an empty composer. `/c/[id]` restores a chat on the server and hands normalized records to the streaming hook. Search is debounced, cancels stale requests and paginates results. A view opened while another tab streams refreshes stored checkpoints until the reply finishes.
+- The chat route schedules `chat/title.ts` through Next's `after` callback, after the streamed response closes. It atomically claims the first completed textual reply, then streams a low-effort title request to that conversation's model with a 128-token output cap and 30-second deadline. Only the first user/reply pair is sent, each capped at 4,000 characters. No extra transcript message is inserted. Title overhead is not included in M1's stored reply usage or the pending M3 cost accounting.
+- Initial titles fall back to the first user message. A manual rename sets `title_status = manual`; late generation writes require `generating` and an undeleted row. Failures retain the fallback. Startup marks interrupted or unstarted title attempts on already completed chats as failed, avoiding duplicate automatic billing. Legacy M1 chats are backfilled without provider calls.
+- `repo/maintenance.ts` purges soft-deleted conversations at first database access and hourly while the app runs. The cutoff is 30 days; foreign-key cascades and FTS triggers remove dependent messages/index entries. An offline app catches up on its next start.
 
 ## 8. Cost accounting
 

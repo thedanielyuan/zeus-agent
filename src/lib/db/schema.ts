@@ -1,4 +1,11 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import type { RefusalDetails } from "@/lib/providers/types";
 
 /** Timestamps are Unix milliseconds. IDs are ULIDs (sortable by creation). */
@@ -8,6 +15,12 @@ export const conversations = sqliteTable(
   {
     id: text("id").primaryKey(),
     title: text("title").notNull().default("New chat"),
+    titleStatus: text("title_status", {
+      enum: ["pending", "generating", "generated", "manual", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    titleUpdatedAt: integer("title_updated_at").notNull().default(0),
     modelId: text("model_id").notNull(),
     systemPrompt: text("system_prompt"),
     effort: text("effort"),
@@ -17,10 +30,23 @@ export const conversations = sqliteTable(
     /** Null unless soft-deleted; hard-deleted by a cleanup job after 30 days. */
     deletedAt: integer("deleted_at"),
   },
-  (t) => [index("conversations_updated_at_idx").on(t.updatedAt)],
+  (t) => [
+    index("conversations_updated_at_idx").on(t.updatedAt),
+    index("conversations_deleted_updated_idx").on(
+      t.deletedAt,
+      t.updatedAt,
+      t.id,
+    ),
+  ],
 );
 
-export const MESSAGE_STATUSES = ["complete", "streaming", "interrupted", "error", "refused"] as const;
+export const MESSAGE_STATUSES = [
+  "complete",
+  "streaming",
+  "interrupted",
+  "error",
+  "refused",
+] as const;
 export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 
 export const messages = sqliteTable(
@@ -41,7 +67,9 @@ export const messages = sqliteTable(
     status: text("status", { enum: MESSAGE_STATUSES }).notNull(),
     stopReason: text("stop_reason"),
     errorCode: text("error_code"),
-    refusalDetails: text("refusal_details", { mode: "json" }).$type<RefusalDetails>(),
+    refusalDetails: text("refusal_details", {
+      mode: "json",
+    }).$type<RefusalDetails>(),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     cacheReadTokens: integer("cache_read_tokens"),
@@ -50,7 +78,9 @@ export const messages = sqliteTable(
     costUsd: real("cost_usd"),
     createdAt: integer("created_at").notNull(),
   },
-  (t) => [uniqueIndex("messages_conversation_seq_idx").on(t.conversationId, t.seq)],
+  (t) => [
+    uniqueIndex("messages_conversation_seq_idx").on(t.conversationId, t.seq),
+  ],
 );
 
 export const settings = sqliteTable("settings", {

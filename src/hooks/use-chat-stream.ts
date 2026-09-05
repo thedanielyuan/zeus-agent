@@ -37,12 +37,12 @@ export interface ChatSettings {
   maxOutputTokens?: number;
 }
 
-export function useChatStream(settings: ChatSettings) {
-  const [messages, setMessages] = useState<UiMessage[]>([]);
+export function useChatStream(settings: ChatSettings, initialMessages: UiMessage[] = []) {
+  const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const settingsRef = useRef(settings);
-  const messagesRef = useRef<UiMessage[]>([]);
+  const messagesRef = useRef<UiMessage[]>(initialMessages);
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);

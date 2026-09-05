@@ -11,6 +11,7 @@ export type ChatErrorCode =
   | "conflict"
   | "payload_too_large"
   | "bad_request"
+  | "not_found"
   | "server"
   | "network"
   | "no_credentials"
@@ -23,7 +24,12 @@ export class ChatError extends Error {
   readonly retryable: boolean;
   readonly status: number | undefined;
 
-  constructor(code: ChatErrorCode, message: string, retryable: boolean, status?: number) {
+  constructor(
+    code: ChatErrorCode,
+    message: string,
+    retryable: boolean,
+    status?: number,
+  ) {
     super(message);
     this.name = "ChatError";
     this.code = code;

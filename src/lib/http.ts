@@ -1,4 +1,5 @@
 import { ChatError } from "@/lib/errors";
+import { ZodError } from "zod";
 
 /**
  * Same-origin gate for mutating routes (PRD FR-X2). Browsers send Fetch
@@ -30,6 +31,31 @@ export function jsonError(
   status: number,
 ): Response {
   return Response.json({ code, message }, { status });
+}
+
+/** Shared boundary for the history/settings APIs; callers do validation and repo work. */
+export async function historyResponse(
+  request: Request,
+  mutating: boolean,
+  action: () => Response | Promise<Response>,
+) {
+  if (mutating && !isSameOrigin(request))
+    return jsonError("forbidden", "Cross-site requests are not allowed.", 403);
+  try {
+    const response = await action();
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  } catch (error) {
+    if (error instanceof ZodError)
+      return jsonError("bad_request", "Invalid request.", 400);
+    if (error instanceof ChatError)
+      return jsonError(error.code, error.message, error.status ?? 500);
+    return jsonError(
+      "server",
+      "Could not access saved history or settings. Please retry.",
+      500,
+    );
+  }
 }
 
 export const MAX_BODY_BYTES = 1_000_000;

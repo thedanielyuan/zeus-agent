@@ -4,6 +4,7 @@ import type { TurnInput } from "@/lib/chat/request";
 import type { Db } from "@/lib/db/client";
 import { conversations, messages, type MessageStatus } from "@/lib/db/schema";
 import { ChatError } from "@/lib/errors";
+import { updateSettings } from "./settings";
 import type {
   ChatMessage,
   ModelSpec,
@@ -91,6 +92,8 @@ export function prepareTurn(db: Db, input: TurnInput, model: ModelSpec) {
           .values({
             id: input.conversationId,
             modelId: model.id,
+            title: input.content.replace(/\s+/g, " ").slice(0, 80),
+            titleUpdatedAt: now,
             createdAt: now,
             ...settings,
           })
@@ -101,6 +104,16 @@ export function prepareTurn(db: Db, input: TurnInput, model: ModelSpec) {
           .where(eq(conversations.id, conversation.id))
           .run();
       }
+      if (rows.length === 0 && conversation?.titleStatus === "pending") {
+        tx.update(conversations)
+          .set({
+            title: input.content.replace(/\s+/g, " ").slice(0, 80),
+            titleUpdatedAt: now,
+          })
+          .where(eq(conversations.id, input.conversationId))
+          .run();
+      }
+      updateSettings(tx, { defaultModelId: model.id });
 
       // Retry replaces only the suffix after the last user row, never its content.
       // If the original request failed before any write, the same IDs create it now.

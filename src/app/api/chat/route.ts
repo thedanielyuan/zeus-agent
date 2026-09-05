@@ -1,3 +1,5 @@
+import { after } from "next/server";
+import { generateTitle } from "@/lib/chat/title";
 import { TurnBody } from "@/lib/chat/request";
 import { runTurn } from "@/lib/chat/run-turn";
 import { toSSEStream } from "@/lib/chat/sse";
@@ -16,6 +18,13 @@ export async function POST(request: Request): Promise<Response> {
     if (!parsed.success)
       return jsonError("bad_request", "Invalid request body.", 400);
     const turn = runTurn(parsed.data, { signal: request.signal });
+    after(async () => {
+      try {
+        await generateTitle(parsed.data.conversationId);
+      } catch {
+        console.error(JSON.stringify({ event: "title_generation_failed" }));
+      }
+    });
     return new Response(toSSEStream(turn.events, { onCancel: turn.cancel }), {
       headers: {
         "Content-Type": "text/event-stream; charset=utf-8",

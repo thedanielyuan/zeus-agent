@@ -25,6 +25,7 @@ export function Composer({
   models,
   modelId,
   onModelChange,
+  modelLocked = false,
   inputRef,
 }: {
   value: string;
@@ -38,6 +39,7 @@ export function Composer({
   models: PublicModel[];
   modelId: string;
   onModelChange: (modelId: string) => void;
+  modelLocked?: boolean;
   inputRef: RefObject<HTMLTextAreaElement | null>;
 }) {
   const composing = useRef(false);
@@ -119,7 +121,7 @@ export function Composer({
           <select
             value={modelId}
             onChange={(event) => onModelChange(event.target.value)}
-            disabled={streaming}
+            disabled={streaming || modelLocked}
             title="Choose model for your next message"
           >
             {models.map((model) => (

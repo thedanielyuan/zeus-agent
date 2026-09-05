@@ -11,6 +11,7 @@ interface MessageListProps {
   models: PublicModel[];
   isStreaming: boolean;
   available: boolean;
+  hideThinking?: boolean;
   onRetry: () => void;
   onContinue: () => void;
 }
@@ -20,6 +21,7 @@ export function MessageList({
   models,
   isStreaming,
   available,
+  hideThinking = false,
   onRetry,
   onContinue,
 }: MessageListProps) {
@@ -64,6 +66,7 @@ export function MessageList({
             canRetry={m === last && available && !isStreaming}
             onRetry={onRetry}
             onContinue={onContinue}
+            hideThinking={hideThinking}
           />
         ))}
         <div ref={endRef} />
@@ -94,12 +97,14 @@ function MessageBubble({
   message: m,
   modelName,
   canRetry,
+  hideThinking,
   onRetry,
   onContinue,
 }: {
   message: UiMessage;
   modelName?: string;
   canRetry: boolean;
+  hideThinking: boolean;
   onRetry: () => void;
   onContinue: () => void;
 }) {
@@ -128,7 +133,7 @@ function MessageBubble({
           )}
         </div>
 
-        {m.thinking && (
+        {m.thinking && !hideThinking && (
           <details className="thinking">
             <summary>
               <Icon name="sparkles" size={15} /> Thinking
@@ -154,9 +159,10 @@ function MessageBubble({
 
         {m.status === "interrupted" && (
           <p className="note">
-            {m.error?.message ?? (m.stopReason === "cancelled"
-              ? "You stopped this response."
-              : "The connection ended before the reply finished.")}
+            {m.error?.message ??
+              (m.stopReason === "cancelled"
+                ? "You stopped this response."
+                : "The connection ended before the reply finished.")}
           </p>
         )}
         {m.stopReason === "max_tokens" && (

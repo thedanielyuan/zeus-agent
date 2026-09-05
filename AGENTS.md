@@ -33,8 +33,8 @@ pnpm dev:mock                              # terminal 2: app on :3001 pointed at
 
 - `src/lib/providers/` — vendor adapters. The only place `@anthropic-ai/sdk` or any vendor SDK may be imported (ESLint enforces this).
 - `src/lib/models/registry.ts` — model IDs, prices, limits, capability flags. Single source of truth.
-- `src/lib/chat/` — `sse.ts` encodes `ChatEvent`s for the browser, `sse-parse.ts` decodes them; `run-turn.ts` (M1) will own persistence.
-- `src/lib/repo/` (M2) — all SQL. Routes and components never query the DB directly.
+- `src/lib/chat/` — `sse.ts` encodes `ChatEvent`s for the browser, `sse-parse.ts` decodes them; `run-turn.ts` owns turn persistence; `title.ts` generates titles after replies.
+- `src/lib/repo/` — all application SQL, history/search, settings and retention cleanup. Routes and components never query the DB directly.
 - `src/lib/env.ts` — the only reader of `process.env`. Server-only; never import from `src/components` or `src/hooks` (ESLint enforces this).
 - `src/app/api/` — thin route handlers: validate with Zod, call a lib function, return.
 

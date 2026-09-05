@@ -1,30 +1,36 @@
+import { notFound } from "next/navigation";
+import { z } from "zod";
 import { Chat } from "@/components/chat/Chat";
-import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db/client";
-import { listConversations } from "@/lib/repo/conversations";
-import { getSettings } from "@/lib/repo/settings";
 import { MODELS, toPublicModel } from "@/lib/models/registry";
 import { isVendorAvailable } from "@/lib/providers/availability";
+import {
+  getConversation,
+  getConversationDetail,
+  listConversations,
+} from "@/lib/repo/conversations";
+import { getSettings } from "@/lib/repo/settings";
 
-// Credential availability is read per request, never baked in at build time.
 export const dynamic = "force-dynamic";
-
-export default async function Home({
-  searchParams,
+export default async function ConversationPage({
+  params,
 }: {
-  searchParams: Promise<{ new?: string }>;
+  params: Promise<{ id: string }>;
 }) {
+  const id = z.ulid().safeParse((await params).id);
+  if (!id.success) notFound();
   const db = getDb();
+  if (!getConversation(db, id.data)) notFound();
   const rows = listConversations(db, 101);
-  if ((await searchParams).new !== "1" && rows[0]) redirect(`/c/${rows[0].id}`);
   const models = MODELS.map((m) =>
     toPublicModel(m, isVendorAvailable(m.vendor)),
   );
   return (
     <Chat
-      key="new"
+      key={id.data}
       models={models}
       initialSettings={getSettings(db)}
+      initialConversation={getConversationDetail(db, id.data)}
       initialConversations={rows.slice(0, 100)}
       initialHasMore={rows.length > 100}
     />

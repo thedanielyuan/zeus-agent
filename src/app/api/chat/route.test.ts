@@ -1,11 +1,15 @@
 import { ulid } from "ulid";
+import { after } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb, openDb, type Db } from "@/lib/db/client";
 import { getMessages } from "@/lib/repo/messages";
+import { getConversation } from "@/lib/repo/conversations";
 import { getProvider, isVendorAvailable } from "@/lib/providers";
 import { parseSSE } from "@/lib/chat/sse-parse";
 import { MAX_BODY_BYTES } from "@/lib/http";
 import { POST } from "./route";
+
+vi.mock("next/server", () => ({ after: vi.fn() }));
 
 vi.mock("@/lib/db/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/db/client")>()),
@@ -51,6 +55,24 @@ beforeEach(() => {
 });
 
 describe("POST /api/chat", () => {
+  it("schedules the title after streaming and persists it without another message row", async () => {
+    const input = body();
+    const response = await POST(request(input));
+    expect(after).toHaveBeenCalledOnce();
+    expect(getConversation(db, input.conversationId)?.titleStatus).toBe(
+      "pending",
+    );
+    await response.text();
+    const callback = vi.mocked(after).mock.calls[0][0];
+    if (typeof callback !== "function")
+      throw new Error("Expected an after callback");
+    await callback();
+    expect(getConversation(db, input.conversationId)).toMatchObject({
+      title: "Hello",
+      titleStatus: "generated",
+    });
+    expect(getMessages(db, input.conversationId)).toHaveLength(2);
+  });
   it("accepts the browser's Host when Next normalizes the internal request URL", async () => {
     const response = await POST(
       request(body(), {
