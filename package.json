@@ -1,0 +1,43 @@
+{
+  "name": "zeus-chat",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:live": "ZEUS_LIVE=1 vitest run src/lib/providers/anthropic.live.test.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "mock": "node scripts/mock-anthropic.mjs",
+    "dev:mock": "ANTHROPIC_API_KEY=mock-key ANTHROPIC_BASE_URL=http://127.0.0.1:8787 next dev -H 127.0.0.1 -p 3001"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "ulid": "^3.0.2",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.3.4",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  }
+}
