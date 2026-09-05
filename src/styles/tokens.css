@@ -1,0 +1,100 @@
+/*
+ * Design tokens (docs/DESIGN.md §2). Light values live on :root; dark values
+ * on html[data-theme="dark"], which the root layout sets from the stored
+ * theme preference so the page is themed before first paint.
+ */
+:root {
+  color-scheme: light;
+
+  /* Colour */
+  --bg: #ffffff;
+  --bg-sidebar: #f7f7f7;
+  --bg-elevated: #f2f2f2;
+  --bg-hover: rgba(0, 0, 0, 0.05);
+  --bg-active: rgba(0, 0, 0, 0.08);
+  --fg: #1a1a1a;
+  --fg-muted: #6b6b6b;
+  --fg-faint: #858585;
+  --line: #e5e5e5;
+  --line-strong: #c9c9c9;
+  --danger: #b42318;
+  --danger-bg: #fef3f2;
+  --selection: #dcdcdc;
+  --backdrop: rgba(0, 0, 0, 0.28);
+  --shadow-raised: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.14);
+
+  /* Type */
+  --font:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-xs: 11px;
+  --leading-xs: 16px;
+  --text-sm: 12px;
+  --leading-sm: 16px;
+  --text-ui: 13px;
+  --leading-ui: 20px;
+  --text-base: 14px;
+  --leading-base: 20px;
+  --text-body: 15px;
+  --leading-body: 1.65;
+  --text-md: 16px;
+  --leading-md: 24px;
+  --text-lg: 18px;
+  --leading-lg: 24px;
+  --text-display: 26px;
+  --leading-display: 32px;
+  --text-code: 13.5px;
+  --leading-code: 1.7;
+
+  /* Space */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-12: 48px;
+
+  /* Radius */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-full: 999px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --t-fast: 120ms;
+  --t-med: 180ms;
+
+  /* Layout */
+  --sidebar-w: 260px;
+  --content-w: 740px;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #212121;
+  --bg-sidebar: #171717;
+  --bg-elevated: #2b2b2b;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.1);
+  --fg: #ececec;
+  --fg-muted: #a6a6a6;
+  --fg-faint: #7a7a7a;
+  --line: #333333;
+  --line-strong: #4d4d4d;
+  --danger: #f28b82;
+  --danger-bg: #352321;
+  --selection: #4a4a4a;
+  --backdrop: rgba(0, 0, 0, 0.5);
+  --shadow-raised: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-med: 0ms;
+  }
+}
