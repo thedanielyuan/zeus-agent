@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, type RefObject } from "react";
+import type { PublicModel } from "@/lib/models/registry";
 import type { Effort } from "@/lib/providers/types";
 import { Icon } from "@/components/ui/icon";
 
@@ -21,6 +22,9 @@ export function Composer({
   streaming,
   available,
   effort,
+  models,
+  modelId,
+  onModelChange,
   inputRef,
 }: {
   value: string;
@@ -31,6 +35,9 @@ export function Composer({
   streaming: boolean;
   available: boolean;
   effort: Effort;
+  models: PublicModel[];
+  modelId: string;
+  onModelChange: (modelId: string) => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
 }) {
   const composing = useRef(false);
@@ -96,6 +103,7 @@ export function Composer({
           type="button"
           onClick={onSettings}
           title="Change thinking effort"
+          aria-label={`Thinking effort: ${effortLabels[effort]}. Change thinking effort`}
         >
           <Icon name="sparkles" size={15} />
           <span>{effortLabels[effort]} effort</span>
@@ -106,6 +114,23 @@ export function Composer({
             {value.length.toLocaleString()}
           </span>
         )}
+        <label className="composer-model-picker">
+          <span className="sr-only">Choose model</span>
+          <select
+            value={modelId}
+            onChange={(event) => onModelChange(event.target.value)}
+            disabled={streaming}
+            title="Choose model for your next message"
+          >
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.displayName}
+                {model.available ? "" : " (not connected)"}
+              </option>
+            ))}
+          </select>
+          <Icon name="chevronDown" size={15} />
+        </label>
         {streaming ? (
           <button
             className="send-button"

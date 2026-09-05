@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 
 const key = "zeus.theme.v1";
-let fallback: "light" | "dark" = "light";
+let fallback: "light" | "dark" = "dark";
 
 function subscribe(listener: () => void) {
   window.addEventListener("storage", listener);
@@ -27,7 +27,7 @@ export function useTheme() {
   const theme = useSyncExternalStore(
     subscribe,
     snapshot,
-    () => "light" as const,
+    () => "dark" as const,
   );
   function setTheme(next: "light" | "dark") {
     fallback = next;

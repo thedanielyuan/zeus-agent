@@ -310,8 +310,7 @@ select:focus-visible {
   background: var(--hover);
   border-radius: 8px;
 }
-.workspace-avatar,
-.header-avatar {
+.workspace-avatar {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -357,55 +356,21 @@ select:focus-visible {
   flex-shrink: 0;
   z-index: 5;
 }
-.model-menu {
-  position: relative;
-  min-width: 0;
-}
-.model-menu > summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  cursor: pointer;
-  list-style: none;
-  border-radius: 8px;
-  padding: 6px 8px;
-  margin-left: -8px;
-}
-.model-menu > summary::-webkit-details-marker {
-  display: none;
-}
-.model-menu > summary:hover {
-  background: var(--sidebar);
-}
-.model-menu > summary > span:first-child {
+.chat-brand {
   font-size: 18px;
   font-weight: 570;
   letter-spacing: -0.5px;
   white-space: nowrap;
 }
-.model-menu > summary > svg {
-  color: var(--subtle);
-}
-.header-model {
-  margin-left: 9px;
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.header-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.header-avatar {
-  width: 31px;
-  height: 31px;
+.header-sidebar-toggle {
+  padding: 7px 9px;
+  border-radius: 8px;
   font-size: 12px;
-  margin-left: 5px;
+  color: var(--muted);
 }
-.header-avatar:hover {
-  box-shadow: 0 0 0 3px var(--hover);
+.header-sidebar-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 .desktop-expand,
 .mobile-menu {
@@ -414,69 +379,6 @@ select:focus-visible {
 .sidebar-collapsed .desktop-expand {
   display: inline-flex;
   margin-right: 7px;
-}
-.model-popover {
-  position: absolute;
-  left: -8px;
-  top: calc(100% + 10px);
-  width: 306px;
-  border: 1px solid var(--border);
-  border-radius: 15px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  padding: 8px;
-  z-index: 10;
-}
-.popover-label {
-  font-size: 11px;
-  color: var(--muted);
-  margin: 5px 9px 10px;
-}
-.model-option {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  padding: 10px 8px;
-  gap: 11px;
-  text-align: left;
-  border-radius: 9px;
-}
-.model-option:hover {
-  background: var(--hover);
-}
-.model-icon {
-  background: var(--sidebar);
-  border: 1px solid var(--border);
-  padding: 8px;
-  border-radius: 10px;
-}
-.model-option > span:nth-child(2) {
-  flex: 1;
-}
-.model-option strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 550;
-}
-.model-option small {
-  display: block;
-  font-size: 10px;
-  color: var(--muted);
-  padding-top: 3px;
-}
-.popover-settings {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  color: var(--muted);
-  font-size: 12px;
-  padding: 13px 10px 7px;
-  border-top: 1px solid var(--border);
-  margin-top: 7px;
-}
-.popover-settings:hover {
-  color: var(--text);
 }
 .conversation-heading {
   display: flex;
@@ -497,17 +399,6 @@ select:focus-visible {
   text-overflow: ellipsis;
   max-width: 400px;
   font-size: 12px;
-}
-.conversation-title > svg {
-  opacity: 0;
-}
-.conversation-title:hover > svg,
-.conversation-title:focus-visible > svg {
-  opacity: 1;
-}
-.conversation-heading .icon-button {
-  width: 24px;
-  height: 24px;
 }
 .chat-body {
   display: flex;
@@ -600,6 +491,7 @@ select:focus-visible {
 }
 .composer-settings {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 7px;
   font-size: 12px;
@@ -613,6 +505,7 @@ select:focus-visible {
 }
 .effort-pill {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 5px;
   color: var(--muted);
@@ -633,6 +526,43 @@ select:focus-visible {
   color: var(--subtle);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+.composer-model-picker {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 220px;
+}
+.composer-model-picker select {
+  appearance: none;
+  min-width: 0;
+  width: 100%;
+  padding: 8px 28px 8px 10px;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.composer-model-picker select:hover:not(:disabled) {
+  background: var(--hover);
+}
+.composer-model-picker select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.composer-model-picker option {
+  background: var(--surface);
+  color: var(--text);
+}
+.composer-model-picker > svg {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
 }
 .send-button {
   border-radius: 50%;
@@ -1120,6 +1050,10 @@ select:focus-visible {
 .settings-content {
   padding-top: 8px;
 }
+.conversation-settings-actions {
+  display: flex;
+  gap: 8px;
+}
 .setting-field {
   display: flex;
   justify-content: space-between;
@@ -1361,9 +1295,6 @@ select:focus-visible {
   }
 }
 @media (max-width: 1050px) {
-  .header-model {
-    display: none;
-  }
   .sidebar {
     width: 238px;
   }
@@ -1391,16 +1322,8 @@ select:focus-visible {
     padding: 0 16px 0 10px;
     gap: 10px;
   }
-  .model-menu > summary > span:first-child {
+  .chat-brand {
     font-size: 17px;
-  }
-  .header-actions {
-    gap: 5px;
-  }
-  .header-avatar {
-    margin-left: 3px;
-    width: 29px;
-    height: 29px;
   }
   .chat-body.is-empty {
     padding-bottom: 60px;
@@ -1426,6 +1349,9 @@ select:focus-visible {
   }
   .composer textarea {
     font-size: 16px;
+  }
+  .composer-settings > span {
+    display: none;
   }
   .suggestions {
     max-width: 400px;
@@ -1479,9 +1405,6 @@ select:focus-visible {
     text-align: left;
     display: block;
   }
-  .conversation-title > svg {
-    display: none;
-  }
   .conversation-heading > span {
     font-size: 9px;
   }
@@ -1529,9 +1452,6 @@ select:focus-visible {
     gap: 4px;
     padding: 6px;
   }
-  .model-popover {
-    width: min(300px, calc(100vw - 75px));
-  }
 }
 @media (max-width: 390px) {
   .welcome h1 {
@@ -1551,7 +1471,8 @@ select:focus-visible {
   .composer-toolbar {
     gap: 5px;
   }
-  .character-count {
+  .character-count,
+  .effort-pill > span {
     display: none;
   }
   .chat-footer {
