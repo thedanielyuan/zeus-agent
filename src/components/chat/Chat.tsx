@@ -35,35 +35,26 @@ interface ChatProps {
 }
 type OpenDialog = "search" | "settings" | "rename" | "delete" | null;
 
-const suggestions: {
-  icon: IconName;
-  title: string;
-  text: string;
-  color: string;
-}[] = [
+const suggestions: { icon: IconName; title: string; text: string }[] = [
   {
     icon: "pen",
     title: "Write something",
     text: "Help me turn a rough idea into something worth reading. Ask me what I have in mind.",
-    color: "orange",
   },
   {
     icon: "bulb",
     title: "Explore an idea",
     text: "Help me brainstorm a fresh idea for a small, creative project. Ask me about my interests first.",
-    color: "yellow",
   },
   {
     icon: "code",
     title: "Build with code",
     text: "Be my coding partner. Help me break a project into simple steps, starting with what I want to build.",
-    color: "blue",
   },
   {
     icon: "book",
     title: "Learn something",
     text: "Help me understand something new. Ask me what I am curious about and explain it with a simple example.",
-    color: "green",
   },
 ];
 export function Chat({
@@ -78,6 +69,11 @@ export function Chat({
     () => initialConversation?.messages.map(toUiMessage) ?? [],
   );
   const [preferences, setPreferences] = useState(initialSettings);
+  // The theme lives on <html> (set server-side by the root layout) so the
+  // body, dialogs and menus are themed; keep it in sync after a settings save.
+  useEffect(() => {
+    document.documentElement.dataset.theme = preferences.theme;
+  }, [preferences.theme]);
   const [record, setRecord] = useState(initialConversation?.conversation);
   const [settings, setSettings] = useState<ConversationSettings>(() =>
     initialConversation
@@ -495,10 +491,7 @@ export function Chat({
   );
 
   return (
-    <div
-      className={`chat-app${sidebarClosed ? " sidebar-collapsed" : ""}`}
-      data-theme={preferences.theme}
-    >
+    <div className={`chat-app${sidebarClosed ? " sidebar-collapsed" : ""}`}>
       <a href="#message-input" className="skip-link">
         Skip to message
       </a>
@@ -629,11 +622,7 @@ export function Chat({
                       inputRef.current?.focus();
                     }}
                   >
-                    <Icon
-                      name={item.icon}
-                      size={17}
-                      className={`suggestion-${item.color}`}
-                    />
+                    <Icon name={item.icon} size={16} />
                     <span>{item.title}</span>
                   </button>
                 ))}
