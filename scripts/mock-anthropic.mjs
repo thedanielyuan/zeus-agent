@@ -6,6 +6,7 @@ import http from "node:http";
 
 const PORT = Number(process.env.MOCK_PORT ?? 8787);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const retryAttempts = new Map();
 
 function sse(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -23,15 +24,22 @@ const server = http.createServer((req, res) => {
     console.log("[mock] request", JSON.stringify({
       headers: { "x-api-key": req.headers["x-api-key"] ? "<present>" : "<missing>", "anthropic-version": req.headers["anthropic-version"] },
       model: body.model, max_tokens: body.max_tokens, thinking: body.thinking, output_config: body.output_config,
-      cache_control: body.cache_control, system: body.system, stream: body.stream, temperature: body.temperature,
+      cache_control: body.cache_control, hasSystem: Boolean(body.system), stream: body.stream, temperature: body.temperature,
       messages: body.messages?.length,
     }));
     const lastUser = [...(body.messages ?? [])].reverse().find((m) => m.role === "user")?.content ?? "";
     const text = typeof lastUser === "string" ? lastUser : JSON.stringify(lastUser);
 
-    if (/error/i.test(text)) {
-      res.writeHead(529, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }));
+    const attempts = retryAttempts.get(text) ?? 0;
+    if (/retry once/i.test(text)) retryAttempts.set(text, attempts + 1);
+    const errorStatus = /auth error/i.test(text) ? 401 : /rate limit/i.test(text) ? 429
+      : /error/i.test(text) || (/retry once/i.test(text) && attempts < 3) ? 529 : 0;
+    if (errorStatus) {
+      res.writeHead(errorStatus, { "content-type": "application/json", "retry-after": "0" });
+      return res.end(JSON.stringify({ type: "error", error: {
+        type: errorStatus === 401 ? "authentication_error" : errorStatus === 429 ? "rate_limit_error" : "overloaded_error",
+        message: "Mock provider failure",
+      } }));
     }
 
     // IncomingMessage 'close' fires once the body is consumed (autoDestroy), so a
@@ -56,7 +64,9 @@ const server = http.createServer((req, res) => {
     const slow = /slow/i.test(text);
     const words = slow
       ? Array.from({ length: 80 }, (_, i) => `word${i + 1} `)
-      : ["Hello", " from", " the", " mock", " Anthropic", " server.", "\n\nYou said: ", JSON.stringify(text), "."];
+      : /code/i.test(text)
+        ? ["Here is a TypeScript example:\n\n", "```typescript\n", "const answer: number = 42;\n", "console.log(answer);\n", "```\n"]
+        : ["Hello", " from", " the", " mock", " Anthropic", " server.", "\n\nYou said: ", JSON.stringify(text), "."];
     for (const w of words) {
       if (closed) return;
       sse(res, "content_block_delta", { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: w } });
@@ -69,7 +79,7 @@ const server = http.createServer((req, res) => {
       type: "message_delta",
       delta: refuse
         ? { stop_reason: "refusal", stop_sequence: null, stop_details: { type: "refusal", category: "general_harms", explanation: "Mock refusal for testing." } }
-        : { stop_reason: "end_turn", stop_sequence: null, stop_details: null },
+        : { stop_reason: /cut off/i.test(text) ? "max_tokens" : "end_turn", stop_sequence: null, stop_details: null },
       usage: { output_tokens: words.length + 12 },
     });
     sse(res, "message_stop", { type: "message_stop" });

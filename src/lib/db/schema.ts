@@ -1,4 +1,5 @@
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import type { RefusalDetails } from "@/lib/providers/types";
 
 /** Timestamps are Unix milliseconds. IDs are ULIDs (sortable by creation). */
 
@@ -40,6 +41,7 @@ export const messages = sqliteTable(
     status: text("status", { enum: MESSAGE_STATUSES }).notNull(),
     stopReason: text("stop_reason"),
     errorCode: text("error_code"),
+    refusalDetails: text("refusal_details", { mode: "json" }).$type<RefusalDetails>(),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     cacheReadTokens: integer("cache_read_tokens"),

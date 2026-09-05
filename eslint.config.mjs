@@ -6,7 +6,8 @@ const SERVER_ONLY_MODULES = [
   "@/lib/env",
   "@/lib/db",
   "@/lib/db/*",
-  "@/lib/providers",
+  "@/lib/repo/*",
+  "@/lib/chat/run-turn",
   "@/lib/providers/index",
   "@/lib/providers/anthropic",
   "@/lib/providers/availability",
@@ -19,25 +20,7 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
-    // Client code never touches env, the DB, or a vendor SDK (ARCHITECTURE.md §9, §10).
-    files: ["src/components/**", "src/hooks/**"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: SERVER_ONLY_MODULES,
-              allowTypeImports: true,
-              message: "Server-only module; client code must go through an API route.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    // Vendor SDKs are imported only inside src/lib/providers/ (ARCHITECTURE.md §1).
+    // Vendor SDKs are imported only inside src/lib/providers/.
     files: ["src/**"],
     ignores: ["src/lib/providers/**"],
     rules: {
@@ -49,6 +32,25 @@ const eslintConfig = defineConfig([
               group: ["@anthropic-ai/sdk", "@anthropic-ai/sdk/*"],
               allowTypeImports: true,
               message: "Import vendor SDKs only inside src/lib/providers/.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Apply client restrictions last so the broad SDK rule cannot replace them.
+    files: ["src/components/**", "src/hooks/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [{ name: "@/lib/providers", allowTypeImports: true, message: "Server-only module; client code must go through an API route." }],
+          patterns: [
+            {
+              group: SERVER_ONLY_MODULES,
+              allowTypeImports: true,
+              message: "Server-only module; client code must go through an API route.",
             },
           ],
         },

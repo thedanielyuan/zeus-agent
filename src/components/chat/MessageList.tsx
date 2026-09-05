@@ -154,9 +154,9 @@ function MessageBubble({
 
         {m.status === "interrupted" && (
           <p className="note">
-            {m.stopReason === "cancelled"
+            {m.error?.message ?? (m.stopReason === "cancelled"
               ? "You stopped this response."
-              : "The connection ended before the reply finished."}
+              : "The connection ended before the reply finished.")}
           </p>
         )}
         {m.stopReason === "max_tokens" && (

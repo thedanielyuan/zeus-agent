@@ -977,6 +977,12 @@ select:focus-visible {
   background: none;
   font-size: inherit;
 }
+.syntax-token {
+  color: var(--syntax-light);
+}
+[data-theme="dark"] .syntax-token {
+  color: var(--syntax-dark);
+}
 .table-scroll {
   overflow-x: auto;
   margin: 20px 0;

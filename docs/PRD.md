@@ -4,7 +4,7 @@
 |---|---|
 | Status | Draft v0.1 |
 | Owner | Daniel Yuan |
-| Last updated | 2026-09-05 |
+| Last updated | 2026-09-06 |
 | Related | [ARCHITECTURE.md](ARCHITECTURE.md), [README](../README.md) |
 
 ## 1. Summary
@@ -167,22 +167,24 @@ Empty state: a centered model picker and system prompt field with three example 
 
 States that must be designed: empty, streaming, interrupted, error with retry, refusal, cut-off with continue, missing API key.
 
-### Chat interface implementation status (2026-09-05)
+### Chat core implementation status (2026-09-06)
 
-The ChatGPT-style interface uses the existing M0 streaming API. Conversation history and conversation settings currently live in the browser session; only the theme preference survives a reload. This interface slice does not complete the database-backed history milestones.
+M1 persists user messages, assistant responses, thinking, stop/refusal details, final usage, and current conversation settings in SQLite. The server rebuilds provider context from stored messages. Sidebar browsing, search, rename, and export still operate on the browser session; restoring that interface after a reload belongs to M2. Theme remains a device preference.
 
-| Requirement | Status in this interface slice |
+| Requirement | Current status |
 |---|---|
-| FR-C1, FR-C2, FR-C4, FR-C5 | Implemented in the browser: streaming, Stop with partial text, role/model/timestamps, and an auto-growing keyboard composer. Live provider acceptance and durable message storage remain separate. |
-| FR-C3, FR-X3 | Sanitized Markdown, tables, safe links, and fenced code with copy controls implemented. Syntax highlighting remains pending. |
-| FR-C7, FR-C8 | Regenerate/Retry uses the last user turn without duplicating earlier context; message and code copying implemented. |
+| FR-C1, FR-C2, FR-C4, FR-C5 | Implemented: streaming, Stop with durable partial text, role/model/timestamps, and an auto-growing keyboard composer. Mock-backed browser QA passes; real provider acceptance remains unrun. |
+| FR-C3, FR-X3 | Sanitized Markdown, tables, safe links, and fenced code with Shiki syntax highlighting and copy controls implemented. Highlighted tokens render as React text; unknown languages fall back to plain text. |
+| FR-C7, FR-C8 | Regenerate/Retry reuses the last stored user row and replaces its assistant suffix without duplicating earlier context; message and code copying implemented. |
 | FR-H2, FR-H4, FR-H6 | Sidebar groups, conversation switching, title/content search, renaming, and Markdown export implemented for session history. SQLite search, JSON export, and durable history remain pending. |
-| FR-S1, FR-S3, FR-S4 | Per-conversation model, instructions, effort, and output limit controls implemented; thinking summaries are collapsed by default. The global hide-thinking preference remains pending. |
+| FR-S1, FR-S3, FR-S4 | Per-conversation controls and collapsed thinking summaries implemented. Settings are stored on each send and apply to that turn. Loading saved settings and the global hide-thinking preference remain in M2. |
 | FR-S2 | Light/dark appearance persists on the device. Database-backed global defaults remain pending. |
-| FR-E1, FR-E2, FR-E3, FR-M7 | Missing-key setup, provider errors, interrupted replies, refusal details, and cut-off/Continue affordances implemented in the UI. |
-| FR-H1, FR-H3, FR-H5, FR-C6, FR-U2, FR-U3 | Database persistence, generated titles, soft-delete retention, edit-and-regenerate, and cost accounting remain pending. Session deletion explicitly requires confirmation. |
+| FR-E1 to FR-E4, FR-M7 | Missing-key setup; distinct authentication, rate limit, overload, and server errors; durable interrupted replies; refusal details; append-only Continue; and a server-enforced ten-minute timeout implemented. Unknown interrupted usage stays null. |
+| FR-M3, FR-H1 | Conversation model and turn records are stored in SQLite. Durable sidebar retrieval and last-used defaults across reloads remain in M2. |
+| FR-X1, FR-X2, FR-X4 | Server-only imports enforced, exception text redacted, same-origin mutations and a 1 MB request limit checked before writes, loopback binding retained, and Next telemetry disabled in app scripts. |
+| FR-H3, FR-H5, FR-C6, FR-U2, FR-U3 | Generated titles, soft-delete retention, edit-and-regenerate, and cost accounting remain pending. Removing a chat from this session requires confirmation and explicitly explains that saved server messages remain. |
 
-Validation: offline browser fixtures exercise streaming, multi-turn context, Stop, Retry, and Continue. UI checks cover desktop/mobile layouts, theme, settings, and session navigation. No real model API calls are part of this interface validation.
+Validation: 80 offline tests cover provider mapping, real SQLite transactions/checkpoints/reopening, all architecture §5 edges, deadlines, overlapping turns, Retry, prefix stability, API validation, SSE, and safe syntax highlighting. Mock-backed browser QA covers streaming, Stop, Retry, refusal, Continue, distinct errors, and session navigation. See [M1 validation](M1-VALIDATION.md). No real model API calls were run.
 
 ## 9. Success metrics
 

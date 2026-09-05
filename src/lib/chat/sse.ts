@@ -53,7 +53,7 @@ export function toSSEStream(events: AsyncIterable<ChatEvent>, opts: SSEOptions =
           return;
         }
         controller.enqueue(encoder.encode(encodeFrame(value)));
-      } catch (err) {
+      } catch {
         stopPing();
         safeEnqueue(
           controller,
@@ -61,7 +61,7 @@ export function toSSEStream(events: AsyncIterable<ChatEvent>, opts: SSEOptions =
             encodeFrame({
               type: "error",
               code: "unknown",
-              message: err instanceof Error ? err.message : String(err),
+              message: "The response could not be completed. Try again.",
               retryable: false,
             }),
           ),

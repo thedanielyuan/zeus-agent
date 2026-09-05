@@ -1,4 +1,4 @@
-import Anthropic, { APIUserAbortError, AuthenticationError, InternalServerError, RateLimitError } from "@anthropic-ai/sdk";
+import Anthropic, { APIUserAbortError, AuthenticationError, BadRequestError, InternalServerError, RateLimitError } from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 import { getModel } from "@/lib/models/registry";
 import { buildParams, createAnthropicProvider, mapError, toStopEvent } from "./anthropic";
@@ -206,9 +206,16 @@ describe("toStopEvent", () => {
 });
 
 describe("mapError", () => {
+  it("distinguishes overload from server failure and redacts provider exception text", () => {
+    expect(mapError(new InternalServerError(529, undefined, "overloaded", new Headers()))).toMatchObject({ code: "overloaded", retryable: true });
+    expect(mapError(new InternalServerError(503, undefined, "unavailable", new Headers()))).toMatchObject({ code: "server", retryable: true });
+    for (const error of [new BadRequestError(400, undefined, "secret-credential", new Headers()), new Error("secret-credential")]) {
+      expect(JSON.stringify(mapError(error))).not.toContain("secret-credential");
+    }
+  });
   it("orders checks most-specific first", () => {
     expect(mapError(new AuthenticationError(401, undefined, "bad key", new Headers()))).toMatchObject({ code: "auth", retryable: false });
     expect(mapError(new InternalServerError(503, undefined, "overloaded", new Headers()))).toMatchObject({ code: "server", retryable: true });
-    expect(mapError(new Error("weird"))).toMatchObject({ code: "unknown", message: "weird" });
+    expect(mapError(new Error("weird"))).toMatchObject({ code: "unknown", message: "The provider could not complete this request." });
   });
 });

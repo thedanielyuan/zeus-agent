@@ -5,6 +5,11 @@
 export type ChatErrorCode =
   | "auth"
   | "rate_limit"
+  | "overloaded"
+  | "timeout"
+  | "cancelled"
+  | "conflict"
+  | "payload_too_large"
   | "bad_request"
   | "server"
   | "network"

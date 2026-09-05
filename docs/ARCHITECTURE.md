@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Status | Draft v0.1, matches [PRD](PRD.md) v0.1 |
-| Last updated | 2026-09-05 |
+| Last updated | 2026-09-06 |
 
 ## 1. Overview
 
@@ -194,7 +194,7 @@ The event stream is the whole contract. The UI, the SSE encoder, and the persist
 | Field | Value | Reason |
 |---|---|---|
 | `model` | `req.model.id` | From the registry, never hard-coded |
-| `max_tokens` | `req.maxOutputTokens` | Streaming, so large values are safe |
+| `max_tokens` | `Math.min(req.maxOutputTokens, req.model.maxOutputTokens)` | Streaming, so large values are safe |
 | `system` | `[{ type: "text", text, cache_control: { type: "ephemeral" } }]` | Explicit breakpoint on the stable prefix |
 | `messages` | mapped from `req.messages` | First message must be `user`; the repo layer guarantees this |
 | `thinking` | `{ type: "adaptive", display: req.thinkingDisplay }` | Sonnet 5 only accepts adaptive; default display is omitted, so summarized must be set explicitly to show reasoning |
@@ -219,7 +219,7 @@ Event mapping:
 | `stop_reason: tool_use` or `pause_turn` | `error { code: "unsupported_stop" }` — cannot occur without tools in v1 |
 | abort signal fired | `stop { reason: "cancelled" }` |
 
-Error mapping uses the SDK's typed classes, most specific first: `AuthenticationError` and `PermissionDeniedError` → `auth`, `RateLimitError` → `rate_limit`, `BadRequestError` → `bad_request`, `APIConnectionError` → `network` (retryable), any other `APIError` with status ≥ 500 → `server` (retryable). No string matching on error messages. The SDK retries 429/5xx twice with backoff before the error reaches the adapter, so a `server` event means three attempts already failed.
+Error mapping uses the SDK's typed classes, most specific first: `AuthenticationError` and `PermissionDeniedError` → `auth`, `RateLimitError` → `rate_limit`, `BadRequestError` → `bad_request`, `APIConnectionError` → `network` (retryable), `APIError` with status 529 → `overloaded` (retryable), other status ≥ 500 → `server` (retryable). No string matching on error messages. User-facing errors use fixed text; arbitrary exception messages are never forwarded. The SDK retries 429/5xx twice with backoff before the error reaches the adapter, so a `server` event means three attempts already failed.
 
 Cancellation is belt and braces: the route wires both `request.signal` (client disconnect) and the SSE stream's `cancel()` (consumer stopped reading) to one `AbortController`, which is passed to the SDK as the request `signal`. Verified end to end against the mock server: a client that drops mid-stream closes the upstream socket within a second.
 
@@ -250,7 +250,7 @@ sequenceDiagram
   participant P as Anthropic adapter
   participant A as Anthropic API
 
-  UI->>R: { conversationId, content } (AbortController attached)
+  UI->>R: { conversationId, userMessageId, action, content, settings }
   R->>T: validated request
   T->>DB: insert user message (complete)
   T->>DB: insert assistant message (streaming, content="")
@@ -260,22 +260,31 @@ sequenceDiagram
     A-->>P: SDK event
     P-->>T: ChatEvent
     T-->>UI: SSE frame
-    T->>DB: throttled content update (every 250 ms)
+    T->>DB: checkpoint content/thinking on a 250 ms timer
   end
   A-->>P: finalMessage()
   P-->>T: usage + stop
-  T->>DB: finalize row (content, thinking, usage, cost, status)
+  T->>DB: finalize row (content, thinking, usage, stop/refusal, status)
   T-->>UI: usage + stop frames, close stream
-  T-)T: title.ts if this was the first reply
+  Note over T: Auto-title and cost calculation arrive in M2/M3
 ```
+
+M1's request is `{ conversationId, userMessageId, action: "send" | "retry", content, modelId, system?, effort?, maxOutputTokens? }`. Both IDs are client-generated ULIDs and survive Retry even if the original response never arrived. The first send creates the conversation; subsequent requests rebuild context from SQLite, never a browser-supplied transcript. Settings are saved in the same transaction as the turn. A response header `X-Assistant-Message-Id` replaces the optimistic assistant ID.
+
+`repo/messages.ts` uses an immediate transaction to insert the user and streaming assistant together, or truncate the last assistant suffix for Retry. An active streaming row blocks another turn in the conversation with HTTP 409. Reused IDs must match the same conversation and last user content. A duplicate Send cannot silently run another provider call. Completed rows are never updated in place.
 
 Behaviour at the edges:
 
 - **Stop button.** The client aborts the fetch. The route handler's `request.signal` fires, run-turn aborts the provider, the assistant row is finalized as `interrupted` with whatever text arrived. Partial usage is unknown for interrupted turns and is recorded as null, not zero.
 - **Process crash mid-stream.** The throttled update means at most 250 ms of text is lost. On next load, rows still marked `streaming` are flipped to `interrupted` by a startup sweep in `db/client.ts`.
-- **Vendor error mid-stream.** Row finalized as `error` with the code; the client shows the ErrorCard with Retry. Retry re-sends the last user message, which truncates the failed assistant row first.
-- **Refusal.** Row finalized as `refused`; the UI shows category and explanation. Retry is offered because the user may rephrase.
+- **Vendor error mid-stream.** Row finalized as `error` with the code (network interruptions use `interrupted`); the client shows the ErrorCard with Retry. Retry re-sends the last user message, which truncates the failed assistant row first.
+- **Refusal.** Row finalized as `refused` with `refusal_details` JSON; the UI shows category and explanation. Retry is offered because the user may rephrase.
 - **Cut off at `max_tokens`.** Row finalized as `complete` with stop reason `max_tokens`; the UI offers Continue, which sends a user message "Continue." and appends the result as a new assistant message. Conversations stay append-only.
+
+- **Timeout.** A ten-minute wall-clock timer finalizes the row as `interrupted` with `error_code = timeout`, drops unknown usage, and aborts the provider even when it stops producing tokens. The UI retains partial text and explains the timeout.
+- **Persistence failure.** A failed checkpoint/final write aborts the provider and emits a generic storage error. No success or usage frame is sent for an uncommitted final response. Any row left streaming is recovered on the next database open.
+
+Checkpoint timers flush even when no next token arrives. Cancellation finalizes immediately, independent of SSE backpressure. The database singleton survives Next development module reloads, so a hot reload cannot sweep a live turn. Cost remains null until M3.
 
 ## 6. Streaming transport
 
@@ -318,6 +327,7 @@ erDiagram
     text status "complete | streaming | interrupted | error | refused"
     text stop_reason
     text error_code
+    text refusal_details "nullable JSON"
     int  input_tokens
     int  output_tokens
     int  cache_read_tokens
@@ -331,11 +341,11 @@ erDiagram
   }
 ```
 
-Indexes: `messages(conversation_id, seq)` unique; `conversations(updated_at)` filtered on `deleted_at IS NULL`. An FTS5 table `messages_fts(content)` and `conversations_fts(title)` back search, kept in sync with triggers.
+Current indexes: `messages(conversation_id, seq)` unique and `conversations(updated_at)`. M2 will add deleted-row filtering and FTS5 tables/triggers for title and message search; they are not implemented yet.
 
 Timestamps are Unix milliseconds. IDs are ULIDs so they sort by creation time. SQLite runs in WAL mode with `synchronous = NORMAL`.
 
-The conversation sent to the provider is rebuilt from `messages` on every turn: rows with status `error` or `refused` are skipped, `interrupted` rows are included with their partial text, and consecutive same-role rows are allowed by the API so no merging is needed.
+The conversation sent to the provider is rebuilt from `messages` on every turn: rows with status `error` or `refused` are skipped, `interrupted` rows are included with their partial text, empty rows are omitted, and consecutive same-role rows are allowed by the API so no merging is needed. The new user message is always last, so requests never use an assistant prefill.
 
 ## 8. Cost accounting
 
@@ -372,6 +382,7 @@ Client components import nothing from `env.ts`. A lint rule (`no-restricted-impo
 - Model output is untrusted. Markdown renders through `rehype-sanitize` with the default schema plus syntax-highlight classes; raw HTML is dropped; links get `target="_blank" rel="noopener noreferrer"`.
 - Request bodies are size-limited (1 MB in v1) and schema-validated before any DB write.
 - Logs redact message content at `info`. Nothing is sent anywhere except the model vendor.
+- Next.js telemetry is disabled in the dev, build, start, typecheck, and mock scripts. Mock chat uses a separate `data/mock.db` and dummy credentials.
 
 ## 11. Testing strategy
 
@@ -393,8 +404,8 @@ The fake provider replays a scripted `ChatEvent[]` with optional delays and inje
 | Milestone | Modules |
 |---|---|
 | M0 Scaffold | `app/`, `db/`, `models/registry.ts`, `providers/anthropic.ts`, `chat/sse.ts`, a minimal `use-chat-stream.ts` |
-| M1 Chat core | `chat/run-turn.ts`, `errors.ts`, `components/chat/*`, `env.ts` |
-| M2 History | `repo/*`, `chat/title.ts`, `components/sidebar/*`, export route |
+| M1 Chat core | `chat/run-turn.ts`, `chat/request.ts`, minimal `repo/messages.ts` for turn transactions, `errors.ts`, `components/chat/*`, `http.ts` |
+| M2 History | remaining `repo/*` CRUD/search, `chat/title.ts`, `components/sidebar/*`, export route |
 | M3 Polish | `cost.ts`, `UsageBadge`, edit/regenerate, theme, accessibility, Playwright |
 | M4 Second provider | new `providers/<vendor>.ts`, registry entries, model switch UI |
 

@@ -2,14 +2,14 @@
 
 A self-hosted chat interface for talking to any AI model through one UI. Version 1 ships with Claude Sonnet 5; other models plug in through a small provider adapter.
 
-**Status:** M0 scaffold. A message typed in the browser streams back from `claude-sonnet-5` with thinking, usage, and Stop working. Persistence, history, and Markdown rendering follow in M1–M3. See the [PRD](docs/PRD.md) and [architecture](docs/ARCHITECTURE.md).
+**Status:** M1 chat core implemented and validated offline. Turns, partial responses, thinking, and terminal details persist in SQLite; Stop, Retry, Continue, provider errors, ten-minute timeouts, and sanitized syntax-highlighted Markdown are supported. Durable history browsing/search/export follows in M2; cost accounting follows in M3. Real provider acceptance has not been run. See the [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), and [M1 validation](docs/M1-VALIDATION.md).
 
 ## What it does
 
 - Streams replies token by token, with Stop, Retry, and Continue.
 - Shows Claude's summarized thinking in a collapsible panel and lets you pick an effort level.
-- Keeps every conversation in a local SQLite file: list, search, rename, export as Markdown or JSON, delete.
-- Tracks tokens and cost per message, with prompt caching on by default so long chats stay cheap.
+- Stores chat turns in a local SQLite file. Sidebar browsing, search, rename, and Markdown export currently use this browser session; loading saved history and JSON export arrive in M2.
+- Records final token usage, with prompt caching enabled. Interrupted usage stays unknown; cost tracking arrives in M3.
 - Never sends your API key to the browser and never sends anything anywhere except the model vendor.
 
 ## Requirements
@@ -36,7 +36,7 @@ Then start the dev server (it binds to loopback only):
 pnpm dev
 ```
 
-Open http://127.0.0.1:3000. The database is created at `./data/zeus.db` on first run.
+Open http://127.0.0.1:3000. The database is created at `./data/zeus.db` on the first chat turn. Existing databases migrate automatically when opened. Back up the database before upgrading.
 
 ## Run without an API key
 
@@ -52,7 +52,9 @@ In another:
 pnpm dev:mock
 ```
 
-Open http://127.0.0.1:3001. Type `slow` for a long reply (try Stop), `refuse` for a refusal, or `error` for a provider outage.
+Open http://127.0.0.1:3001. Type `slow` for a long reply (try Stop), `refuse` for a refusal, `cut off` for Continue, or `code` for syntax highlighting. Error fixtures: `auth error`, `rate limit`, `error` (overload), and `retry once` (fails through the SDK retries, then succeeds when you press Retry).
+
+Mock turns use `./data/mock.db`, separate from your real chat database. The script supplies a dummy key and clears any inherited auth token. Stop another dev server in the same checkout before starting this one.
 
 ## Scripts
 
