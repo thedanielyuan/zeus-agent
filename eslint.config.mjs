@@ -8,6 +8,7 @@ const SERVER_ONLY_MODULES = [
   "@/lib/db/*",
   "@/lib/repo/*",
   "@/lib/chat/run-turn",
+  "@/lib/chat/title",
   "@/lib/providers/index",
   "@/lib/providers/anthropic",
   "@/lib/providers/availability",

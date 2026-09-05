@@ -270,9 +270,20 @@ select:focus-visible {
   font-size: 13px;
 }
 .history-item span {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.history-item time {
+  flex-shrink: 0;
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.history-more {
+  margin: 12px;
 }
 .history-item:hover,
 .history-item.active {
@@ -1058,6 +1069,7 @@ select:focus-visible {
 }
 .conversation-settings-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .setting-field {
@@ -1075,13 +1087,24 @@ select:focus-visible {
   margin-top: 4px;
   font-size: 10px;
 }
-.setting-field select {
+.setting-field select,
+.setting-field input[type="number"] {
   max-width: 190px;
   font-size: 12px;
   padding: 8px 26px 8px 11px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--sidebar);
+}
+.setting-field input[type="number"] {
+  width: 120px;
+  padding-right: 8px;
+}
+.setting-field input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  accent-color: var(--text);
 }
 .system-setting {
   align-items: stretch;

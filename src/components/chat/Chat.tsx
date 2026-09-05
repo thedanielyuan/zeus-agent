@@ -1,11 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ulid } from "ulid";
-import { useChatStream, type UiMessage } from "@/hooks/use-chat-stream";
-import { useTheme } from "@/hooks/use-theme";
+import { useChatStream } from "@/hooks/use-chat-stream";
+import { toUiMessage } from "@/lib/chat/ui-message";
+import { apiRequest } from "@/lib/api-client";
+import type {
+  Conversation,
+  ConversationDetail,
+  ConversationSummary,
+} from "@/lib/repo/conversations";
+import {
+  conversationDefaults,
+  type ConversationSettings,
+  type GlobalSettings,
+} from "@/lib/settings";
+import { ConversationList } from "@/components/sidebar/ConversationList";
+import { SearchDialog } from "@/components/sidebar/SearchDialog";
+import { SettingsDialog } from "./SettingsDialog";
 import type { PublicModel } from "@/lib/models/registry";
-import { EFFORT_LEVELS, type Effort } from "@/lib/providers/types";
+import { type Effort } from "@/lib/providers/types";
 import { Dialog } from "@/components/ui/dialog";
 import { Icon, ZeusMark, type IconName } from "@/components/ui/icon";
 import { Composer } from "./Composer";
@@ -13,17 +28,10 @@ import { MessageList } from "./MessageList";
 
 interface ChatProps {
   models: PublicModel[];
-  defaultModelId: string;
-}
-interface Conversation {
-  id: string;
-  title: string;
-  updatedAt: number;
-  modelId: string;
-  system: string;
-  effort: Effort;
-  maxOutputTokens: number;
-  messages: UiMessage[];
+  initialSettings: GlobalSettings;
+  initialConversation?: ConversationDetail;
+  initialConversations: ConversationSummary[];
+  initialHasMore: boolean;
 }
 type OpenDialog = "search" | "settings" | "rename" | "delete" | null;
 
@@ -58,79 +66,92 @@ const suggestions: {
     color: "green",
   },
 ];
-const effortNames: Record<Effort, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Maximum",
-};
-
-function groupDate(timestamp: number) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const day = new Date(timestamp);
-  day.setHours(0, 0, 0, 0);
-  const days = Math.round((today.getTime() - day.getTime()) / 86_400_000);
-  return days === 0
-    ? "Today"
-    : days === 1
-      ? "Yesterday"
-      : days < 7
-        ? "Previous 7 days"
-        : "Older";
-}
-
-export function Chat({ models, defaultModelId }: ChatProps) {
-  const [modelId, setModelId] = useState(defaultModelId);
-  const [system, setSystem] = useState("");
-  const [effort, setEffort] = useState<Effort>("high");
-  const [maxOutputTokens, setMaxOutputTokens] = useState(64_000);
+export function Chat({
+  models,
+  initialSettings,
+  initialConversation,
+  initialConversations,
+  initialHasMore,
+}: ChatProps) {
+  const router = useRouter();
+  const [initialMessages] = useState(
+    () => initialConversation?.messages.map(toUiMessage) ?? [],
+  );
+  const [preferences, setPreferences] = useState(initialSettings);
+  const [record, setRecord] = useState(initialConversation?.conversation);
+  const [settings, setSettings] = useState<ConversationSettings>(() =>
+    initialConversation
+      ? {
+          modelId: initialConversation.conversation.modelId,
+          systemPrompt: initialConversation.conversation.systemPrompt ?? "",
+          effort: (initialConversation.conversation.effort ?? "high") as Effort,
+          maxOutputTokens:
+            initialConversation.conversation.maxOutputTokens ?? 64_000,
+        }
+      : conversationDefaults(initialSettings),
+  );
+  const { modelId, systemPrompt: system, effort, maxOutputTokens } = settings;
   const [draft, setDraft] = useState("");
-  const [saved, setSaved] = useState<Conversation[]>([]);
-  const [activeId, setActiveId] = useState(() => ulid());
-  const [title, setTitle] = useState("");
+  const [saved, setSaved] = useState(initialConversations);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const [activeId, setActiveId] = useState(
+    () => initialConversation?.conversation.id ?? ulid(),
+  );
   const [sidebarClosed, setSidebarClosed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dialog, setDialog] = useState<OpenDialog>(null);
-  const [query, setQuery] = useState("");
   const [rename, setRename] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const { theme, setTheme } = useTheme();
+  const pages = useRef(1);
+  const refreshVersion = useRef(0);
+  const mounted = useRef(true);
+  const navigating = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const model = models.find((item) => item.id === modelId) ?? models[0];
-  const { messages, isStreaming, send, stop, reset, retry, load } =
-    useChatStream({ conversationId: activeId, modelId, system, effort, maxOutputTokens });
-  const available = model?.available ?? false;
+  const { messages, isStreaming, send, stop, retry, load } = useChatStream(
+    { conversationId: activeId, modelId, system, effort, maxOutputTokens },
+    initialMessages,
+  );
+  const storedStreaming =
+    !isStreaming && messages.some((message) => message.status === "streaming");
+  const locked = isStreaming || busy || storedStreaming;
+  const available = (model?.available ?? false) && !busy && !storedStreaming;
   const isEmpty = messages.length === 0;
+  const activeSummary = saved.find((item) => item.id === activeId);
   const conversationTitle =
-    title ||
+    activeSummary?.title ??
+    record?.title ??
     messages
       .find((message) => message.role === "user")
       ?.content.replace(/\s+/g, " ")
-      .slice(0, 52) ||
+      .slice(0, 80) ??
     "New chat";
-  const current: Conversation = {
-    id: activeId,
-    title: conversationTitle,
-    updatedAt: messages.at(-1)?.createdAt ?? 0,
-    modelId,
-    system,
-    effort,
-    maxOutputTokens,
-    messages,
-  };
   const conversations = [
     ...saved.filter((item) => item.id !== activeId),
-    ...(isEmpty ? [] : [current]),
-  ].sort((a, b) => b.updatedAt - a.updatedAt);
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const searchResults = conversations.filter(
-    (item) =>
-      !normalizedQuery ||
-      `${item.title} ${item.messages.map((message) => message.content).join(" ")}`
-        .toLocaleLowerCase()
-        .includes(normalizedQuery),
-  );
+    ...(!isEmpty || record
+      ? [
+          {
+            id: activeId,
+            title: conversationTitle,
+            titleStatus:
+              activeSummary?.titleStatus ??
+              record?.titleStatus ??
+              ("pending" as const),
+            updatedAt: Math.max(
+              activeSummary?.updatedAt ?? record?.updatedAt ?? 0,
+              messages.at(-1)?.createdAt ?? 0,
+            ),
+          },
+        ]
+      : []),
+  ].sort((a, b) => b.updatedAt - a.updatedAt || b.id.localeCompare(a.id));
   const totalTokens = messages.reduce(
     (sum, message) =>
       sum +
@@ -143,69 +164,236 @@ export function Chat({ models, defaultModelId }: ChatProps) {
     0,
   );
 
+  const refreshHistory = useCallback(async () => {
+    const version = ++refreshVersion.current;
+    const results = await Promise.all(
+      Array.from({ length: pages.current }, (_, page) =>
+        apiRequest<{ conversations: ConversationSummary[]; hasMore: boolean }>(
+          `/api/conversations?offset=${page * 100}`,
+        ),
+      ),
+    );
+    if (mounted.current && version === refreshVersion.current) {
+      setSaved(results.flatMap((result) => result.conversations));
+      setHasMore(results.at(-1)!.hasMore);
+    }
+  }, []);
+
+  // An automatic title runs after SSE closes. Refresh until its durable claim settles.
+  const titleStatus = activeSummary?.titleStatus ?? record?.titleStatus;
+  const titlePending =
+    titleStatus === "generating" ||
+    (titleStatus === "pending" &&
+      messages.some(
+        (m) =>
+          m.role === "assistant" && m.status === "complete" && m.content.trim(),
+      ));
+  useEffect(() => {
+    if (isStreaming || (!titlePending && !storedStreaming)) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const detail = await apiRequest<ConversationDetail>(
+          `/api/conversations/${activeId}`,
+          { signal: controller.signal },
+        );
+        if (!controller.signal.aborted && !navigating.current) {
+          setRecord(detail.conversation);
+          if (storedStreaming) load(detail.messages.map(toUiMessage));
+        }
+        if (!controller.signal.aborted) await refreshHistory();
+      } catch {
+        if (!controller.signal.aborted)
+          setError("Could not refresh saved history. Please reload to retry.");
+      }
+      if (!controller.signal.aborted) timer = setTimeout(poll, 1000);
+    };
+    timer = setTimeout(poll, 500);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    activeId,
+    isStreaming,
+    storedStreaming,
+    titlePending,
+    load,
+    refreshHistory,
+  ]);
+
   function closeDialog() {
-    setDialog(null);
+    if (!busy) {
+      setDialog(null);
+      setError("");
+    }
   }
   function openSearch() {
-    setQuery("");
+    setError("");
     setDialog("search");
     setMobileOpen(false);
   }
-  function newChat() {
-    if (isStreaming) return;
-    if (!isEmpty) {
-      setSaved(conversations);
-      setActiveId(ulid());
-      reset();
-      setTitle("");
+  async function newChat() {
+    if (locked) return;
+    if (!record && isEmpty) {
+      setSettings(conversationDefaults(preferences));
+      setDraft("");
+      setMobileOpen(false);
+      setDialog(null);
+      return;
     }
-    setDraft("");
-    setMobileOpen(false);
-    setDialog(null);
-    inputRef.current?.focus();
+    setBusy(true);
+    navigating.current = true;
+    try {
+      const next = await apiRequest<Conversation>("/api/conversations", {
+        method: "POST",
+        body: "{}",
+      });
+      router.push(`/c/${next.id}`);
+    } catch (failure) {
+      navigating.current = false;
+      setError((failure as Error).message);
+      setBusy(false);
+    }
   }
-  function openConversation(item: Conversation) {
-    if (isStreaming) return;
-    setSaved(conversations);
-    load(item.messages);
-    setActiveId(item.id);
-    setTitle(item.title);
-    setModelId(item.modelId);
-    setSystem(item.system);
-    setEffort(item.effort);
-    setMaxOutputTokens(item.maxOutputTokens);
-    setDraft("");
+  function openConversation(id: string) {
+    if (locked) return;
+    if (id !== activeId) {
+      navigating.current = true;
+      setBusy(true);
+      router.push(`/c/${id}`);
+    }
     setMobileOpen(false);
     setDialog(null);
-    inputRef.current?.focus();
+  }
+  async function afterTurn() {
+    if (!mounted.current || navigating.current) return;
+    try {
+      const detail = await apiRequest<ConversationDetail>(
+        `/api/conversations/${activeId}`,
+      );
+      if (!mounted.current || navigating.current) return;
+      setRecord(detail.conversation);
+      window.history.replaceState(null, "", `/c/${activeId}`);
+      await refreshHistory();
+    } catch {
+      if (mounted.current)
+        setError(
+          "Could not refresh saved history. Your reply above is still available; reload to retry.",
+        );
+    }
   }
   function sendMessage() {
-    if (!available || isStreaming || !draft.trim()) return;
-    void send(draft);
+    if (!available || locked || !draft.trim()) return;
+    setError("");
+    void send(draft).then(afterTurn);
     setDraft("");
   }
-  function selectModel(nextModelId: string) {
-    if (isStreaming) return;
+  async function selectModel(nextModelId: string) {
+    if (locked || !isEmpty || nextModelId === modelId) return;
     const next = models.find((item) => item.id === nextModelId);
     if (!next) return;
-    setModelId(next.id);
-    setMaxOutputTokens((value) => Math.min(value, next.maxOutputTokens));
-  }
-  function exportConversation() {
-    const text = `# ${conversationTitle}\n\n${messages
-      .map(
-        (message) =>
-          `## ${message.role === "user" ? "You" : (models.find((item) => item.id === message.modelId)?.displayName ?? "Assistant")}\n\n${message.content}${message.thinking ? `\n\n<details><summary>Thinking</summary>\n\n${message.thinking}\n\n</details>` : ""}`,
-      )
-      .join("\n\n---\n\n")}\n`;
-    const url = URL.createObjectURL(
-      new Blob([text], { type: "text/markdown;charset=utf-8" }),
+    await saveSettings(
+      {
+        ...settings,
+        modelId: next.id,
+        maxOutputTokens: Math.min(maxOutputTokens, next.maxOutputTokens),
+      },
+      {},
     );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${conversationTitle.replace(/[^a-z0-9-]/gi, "-").slice(0, 60) || "zeus-chat"}.md`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function saveSettings(
+    next: ConversationSettings,
+    globals: Partial<GlobalSettings>,
+  ) {
+    if (locked) return;
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await apiRequest<Conversation>(
+        record ? `/api/conversations/${activeId}` : "/api/conversations",
+        {
+          method: record ? "PATCH" : "POST",
+          body: JSON.stringify(next),
+        },
+      );
+      setRecord(updated);
+      setActiveId(updated.id);
+      setSettings(next);
+      setPreferences((previous) => ({
+        ...previous,
+        defaultModelId: updated.modelId,
+      }));
+      window.history.replaceState(null, "", `/c/${updated.id}`);
+      if (Object.keys(globals).length) {
+        setPreferences(
+          await apiRequest<GlobalSettings>("/api/settings", {
+            method: "PATCH",
+            body: JSON.stringify(globals),
+          }),
+        );
+      }
+      await refreshHistory();
+      setDialog(null);
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function renameConversation() {
+    if (locked || !rename.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await apiRequest<Conversation>(
+        `/api/conversations/${activeId}`,
+        { method: "PATCH", body: JSON.stringify({ title: rename.trim() }) },
+      );
+      setRecord(updated);
+      await refreshHistory();
+      setDialog(null);
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function deleteChat() {
+    if (locked) return;
+    setBusy(true);
+    setError("");
+    try {
+      await apiRequest(`/api/conversations/${activeId}`, { method: "DELETE" });
+      navigating.current = true;
+      router.push("/?new=1");
+    } catch (failure) {
+      setError((failure as Error).message);
+      setBusy(false);
+    }
+  }
+  async function exportSaved(format: "md" | "json") {
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/conversations/${activeId}/export?format=${format}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok)
+        throw new Error("Could not export this chat. Please retry.");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download =
+        response.headers
+          .get("Content-Disposition")
+          ?.match(/filename="([^"]+)"/)?.[1] ?? `zeus-chat.${format}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (failure) {
+      setError((failure as Error).message);
+    }
   }
 
   // Keep keyboard shortcuts current without reattaching the document listener on every streamed token.
@@ -244,7 +432,7 @@ export function Chat({ models, defaultModelId }: ChatProps) {
           className="brand-button"
           aria-label="Zeus home, new chat"
           onClick={newChat}
-          disabled={isStreaming}
+          disabled={locked}
         >
           <ZeusMark />
           <span>zeus</span>
@@ -260,7 +448,7 @@ export function Chat({ models, defaultModelId }: ChatProps) {
         </button>
       </div>
       <nav className="sidebar-navigation" aria-label="Chat navigation">
-        <button className="nav-item" onClick={newChat} disabled={isStreaming}>
+        <button className="nav-item" onClick={newChat} disabled={locked}>
           <Icon name="compose" />
           <span>New chat</span>
           <kbd>⇧ ⌘ O</kbd>
@@ -271,41 +459,22 @@ export function Chat({ models, defaultModelId }: ChatProps) {
           <kbd>⌘ K</kbd>
         </button>
       </nav>
-      <div className="sidebar-history">
-        {conversations.length === 0 ? (
-          <div className="history-empty">
-            <Icon name="chat" size={22} />
-            <p>
-              A little space for
-              <br />
-              your next big idea.
-            </p>
-            <span>Your conversations will appear here.</span>
-          </div>
-        ) : (
-          conversations.map((item, index) => (
-            <div key={item.id}>
-              {(index === 0 ||
-                groupDate(item.updatedAt) !==
-                  groupDate(conversations[index - 1].updatedAt)) && (
-                <h2 className="history-heading">{groupDate(item.updatedAt)}</h2>
-              )}
-              <button
-                className={`history-item${activeId === item.id ? " active" : ""}`}
-                disabled={isStreaming}
-                onClick={() => openConversation(item)}
-                aria-current={activeId === item.id ? "page" : undefined}
-                title={item.title}
-              >
-                <span>{item.title}</span>
-              </button>
-            </div>
-          ))
-        )}
-      </div>
+      <ConversationList
+        conversations={conversations}
+        activeId={activeId}
+        disabled={locked}
+        hasMore={hasMore}
+        onOpen={openConversation}
+        onMore={() => {
+          pages.current++;
+          void refreshHistory().catch(() =>
+            setError("Could not load older chats. Please retry."),
+          );
+        }}
+      />
       <div className="sidebar-footer">
         <div className="session-note">
-          <span className="status-dot" /> History browsing is session-only
+          <span className="status-dot" /> History saved on this server
         </div>
         <button
           className="workspace-button"
@@ -328,7 +497,7 @@ export function Chat({ models, defaultModelId }: ChatProps) {
   return (
     <div
       className={`chat-app${sidebarClosed ? " sidebar-collapsed" : ""}`}
-      data-theme={theme}
+      data-theme={preferences.theme}
     >
       <a href="#message-input" className="skip-link">
         Skip to message
@@ -364,12 +533,12 @@ export function Chat({ models, defaultModelId }: ChatProps) {
           <span className="chat-brand">Zeus Chat</span>
         </header>
 
-        {!isEmpty && (
+        {(!isEmpty || record) && (
           <div className="conversation-heading">
             <button
               className="conversation-title"
               title="Rename conversation"
-              disabled={isStreaming}
+              disabled={locked}
               onClick={() => {
                 setRename(conversationTitle);
                 setDialog("rename");
@@ -398,19 +567,20 @@ export function Chat({ models, defaultModelId }: ChatProps) {
             <MessageList
               messages={messages}
               models={models}
-              isStreaming={isStreaming}
+              isStreaming={isStreaming || storedStreaming}
+              hideThinking={preferences.hideThinking}
               available={available}
               onRetry={() => {
-                void retry();
+                void retry()?.then(afterTurn);
               }}
               onContinue={() => {
-                void send("Continue.");
+                void send("Continue.").then(afterTurn);
               }}
             />
           )}
 
           <div className="composer-area">
-            {!available && (
+            {!model?.available && (
               <div className="setup-banner" role="status">
                 <Icon name="info" size={18} />
                 <span>
@@ -419,6 +589,17 @@ export function Chat({ models, defaultModelId }: ChatProps) {
                   then restart the server.
                 </span>
               </div>
+            )}
+            {error && !dialog && (
+              <p className="note error" role="alert">
+                {error}
+              </p>
+            )}
+            {storedStreaming && (
+              <p className="note" role="status">
+                A reply is running in another tab. This chat will refresh when
+                it finishes.
+              </p>
             )}
             <Composer
               value={draft}
@@ -431,7 +612,10 @@ export function Chat({ models, defaultModelId }: ChatProps) {
               effort={effort}
               models={models}
               modelId={modelId}
-              onModelChange={selectModel}
+              onModelChange={(id) => {
+                void selectModel(id);
+              }}
+              modelLocked={locked || !isEmpty}
               inputRef={inputRef}
             />
             {isEmpty && (
@@ -466,212 +650,38 @@ export function Chat({ models, defaultModelId }: ChatProps) {
       </main>
 
       {dialog === "search" && (
-        <Dialog
-          title="Search your chats"
+        <SearchDialog
           onClose={closeDialog}
-          className="search-dialog"
-        >
-          <div className="search-input">
-            <Icon name="search" />
-            <input
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by title or message…"
-              aria-label="Search conversations"
-            />
-            <kbd>esc</kbd>
-          </div>
-          <div className="search-results">
-            {searchResults.length ? (
-              searchResults.map((item) => (
-                <button
-                  key={item.id}
-                  className="search-result"
-                  disabled={isStreaming}
-                  onClick={() => openConversation(item)}
-                >
-                  <Icon name="chat" size={20} />
-                  <span>
-                    <strong>{item.title}</strong>
-                    <small>
-                      {item.messages
-                        .find((message) =>
-                          message.content
-                            .toLocaleLowerCase()
-                            .includes(normalizedQuery),
-                        )
-                        ?.content.slice(0, 110)}
-                    </small>
-                  </span>
-                  <Icon name="arrowRight" size={16} />
-                </button>
-              ))
-            ) : (
-              <div className="search-empty">
-                <Icon name="search" size={30} />
-                <h3>
-                  {query
-                    ? "No chats found"
-                    : "Your next conversation starts here"}
-                </h3>
-                <p>
-                  {query
-                    ? "Try a different word or phrase."
-                    : "Start a chat and you can find it here."}
-                </p>
-              </div>
-            )}
-          </div>
-          <div className="dialog-footnote">
-            Searches conversations from this session.
-          </div>
-        </Dialog>
+          onOpen={openConversation}
+          disabled={locked}
+        />
       )}
-
       {dialog === "settings" && (
-        <Dialog title="Make Zeus your own" onClose={closeDialog}>
-          <p className="dialog-description">
-            A few preferences for this conversation.
-          </p>
-          <div className="settings-content">
-            <label className="setting-field">
-              <span>Model</span>
-              <select
-                value={modelId}
-                disabled={isStreaming}
-                onChange={(event) => selectModel(event.target.value)}
-              >
-                {models.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {model?.capabilities.effort && (
-              <label className="setting-field">
-                <span>
-                  Thinking effort
-                  <small>Give complex questions a little more thought.</small>
-                </span>
-                <select
-                  value={effort}
-                  disabled={isStreaming}
-                  onChange={(event) => setEffort(event.target.value as Effort)}
-                >
-                  {EFFORT_LEVELS.map((level) => (
-                    <option key={level} value={level}>
-                      {effortNames[level]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label className="setting-field">
-              <span>
-                Response limit<small>Maximum tokens per reply.</small>
-              </span>
-              <select
-                value={maxOutputTokens}
-                disabled={isStreaming}
-                onChange={(event) =>
-                  setMaxOutputTokens(Number(event.target.value))
-                }
-              >
-                {[2048, 8192, 16384, 64000, model?.maxOutputTokens ?? 64000]
-                  .filter(
-                    (value, index, values) =>
-                      values.indexOf(value) === index &&
-                      value <= (model?.maxOutputTokens ?? 64000),
-                  )
-                  .map((value) => (
-                    <option key={value} value={value}>
-                      {value.toLocaleString()}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label className="setting-field system-setting">
-              <span>
-                Custom instructions
-                <small>What should Zeus know about how you like to work?</small>
-              </span>
-              <textarea
-                rows={4}
-                value={system}
-                maxLength={100000}
-                disabled={isStreaming}
-                onChange={(event) => setSystem(event.target.value)}
-                placeholder="For example, keep answers concise and use practical examples."
-              />
-            </label>
-            <div className="setting-field">
-              <span>
-                Appearance
-                <small>Your theme is remembered on this device.</small>
-              </span>
-              <div className="theme-options">
-                <button
-                  className={theme === "light" ? "selected" : ""}
-                  aria-pressed={theme === "light"}
-                  onClick={() => setTheme("light")}
-                >
-                  <Icon name="sun" size={16} /> Light
-                </button>
-                <button
-                  className={theme === "dark" ? "selected" : ""}
-                  aria-pressed={theme === "dark"}
-                  onClick={() => setTheme("dark")}
-                >
-                  <Icon name="moon" size={16} /> Dark
-                </button>
-              </div>
-            </div>
-            {!isEmpty && (
-              <div className="setting-field">
-                <span>Conversation</span>
-                <div className="conversation-settings-actions">
-                  <button
-                    className="secondary-button"
-                    onClick={exportConversation}
-                    aria-label="Export conversation as Markdown"
-                  >
-                    Export
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={isStreaming}
-                    aria-label="Delete conversation"
-                    onClick={() => setDialog("delete")}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="dialog-actions">
-            <span>
-              {isStreaming
-                ? "Conversation settings unlock when the reply finishes."
-                : "Changes apply to your next message."}
-            </span>
-            <button className="primary-button" onClick={closeDialog}>
-              Done
-            </button>
-          </div>
-        </Dialog>
+        <SettingsDialog
+          models={models}
+          current={settings}
+          preferences={preferences}
+          disabled={locked}
+          hasMessages={!isEmpty}
+          saved={!!record}
+          error={error}
+          onSave={saveSettings}
+          onClose={closeDialog}
+          onExport={(format) => {
+            void exportSaved(format);
+          }}
+          onDelete={() => {
+            setError("");
+            setDialog("delete");
+          }}
+        />
       )}
       {dialog === "rename" && (
         <Dialog title="Rename this chat" onClose={closeDialog}>
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (rename.trim()) {
-                setTitle(rename.trim());
-                closeDialog();
-              }
+              void renameConversation();
             }}
           >
             <label className="rename-field">
@@ -680,21 +690,28 @@ export function Chat({ models, defaultModelId }: ChatProps) {
                 autoFocus
                 value={rename}
                 maxLength={200}
+                disabled={busy}
                 onChange={(event) => setRename(event.target.value)}
               />
             </label>
+            {error && (
+              <p className="dialog-description note error" role="alert">
+                {error}
+              </p>
+            )}
             <div className="dialog-actions">
               <button
                 type="button"
                 className="secondary-button"
                 onClick={closeDialog}
+                disabled={busy}
               >
                 Cancel
               </button>
               <button
                 className="primary-button"
                 type="submit"
-                disabled={!rename.trim()}
+                disabled={locked || !rename.trim()}
               >
                 Save name
               </button>
@@ -705,22 +722,27 @@ export function Chat({ models, defaultModelId }: ChatProps) {
       {dialog === "delete" && (
         <Dialog title="Delete this chat?" onClose={closeDialog}>
           <p className="dialog-description">
-            “{conversationTitle}” will be removed from this session. Its saved
-            messages remain on this server. You can export a copy first.
+            “{conversationTitle}” will be hidden from your history now and
+            permanently deleted after 30 days. You can export a copy first.
           </p>
+          {error && (
+            <p className="dialog-description note error" role="alert">
+              {error}
+            </p>
+          )}
           <div className="dialog-actions">
-            <button className="secondary-button" onClick={closeDialog}>
+            <button
+              className="secondary-button"
+              onClick={closeDialog}
+              disabled={busy}
+            >
               Keep chat
             </button>
             <button
               className="danger-button"
+              disabled={locked}
               onClick={() => {
-                setSaved(conversations.filter((item) => item.id !== activeId));
-                reset();
-                setActiveId(ulid());
-                setTitle("");
-                setDraft("");
-                closeDialog();
+                void deleteChat();
               }}
             >
               Delete chat

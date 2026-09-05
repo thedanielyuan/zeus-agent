@@ -29,10 +29,11 @@ const server = http.createServer((req, res) => {
     }));
     const lastUser = [...(body.messages ?? [])].reverse().find((m) => m.role === "user")?.content ?? "";
     const text = typeof lastUser === "string" ? lastUser : JSON.stringify(lastUser);
+    const titleRequest = body.system?.some((block) => block.text?.startsWith("Write a concise title for this conversation."));
 
     const attempts = retryAttempts.get(text) ?? 0;
     if (/retry once/i.test(text)) retryAttempts.set(text, attempts + 1);
-    const errorStatus = /auth error/i.test(text) ? 401 : /rate limit/i.test(text) ? 429
+    const errorStatus = titleRequest ? 0 : /auth error/i.test(text) ? 401 : /rate limit/i.test(text) ? 429
       : /error/i.test(text) || (/retry once/i.test(text) && attempts < 3) ? 529 : 0;
     if (errorStatus) {
       res.writeHead(errorStatus, { "content-type": "application/json", "retry-after": "0" });
@@ -61,8 +62,8 @@ const server = http.createServer((req, res) => {
     sse(res, "content_block_stop", { type: "content_block_stop", index: 0 });
 
     sse(res, "content_block_start", { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } });
-    const slow = /slow/i.test(text);
-    const words = slow
+    const slow = !titleRequest && /slow/i.test(text);
+    const words = titleRequest ? ["Mock conversation title"] : slow
       ? Array.from({ length: 80 }, (_, i) => `word${i + 1} `)
       : /code/i.test(text)
         ? ["Here is a TypeScript example:\n\n", "```typescript\n", "const answer: number = 42;\n", "console.log(answer);\n", "```\n"]
@@ -74,12 +75,12 @@ const server = http.createServer((req, res) => {
     }
     sse(res, "content_block_stop", { type: "content_block_stop", index: 1 });
 
-    const refuse = /refuse/i.test(text);
+    const refuse = !titleRequest && /refuse/i.test(text);
     sse(res, "message_delta", {
       type: "message_delta",
       delta: refuse
         ? { stop_reason: "refusal", stop_sequence: null, stop_details: { type: "refusal", category: "general_harms", explanation: "Mock refusal for testing." } }
-        : { stop_reason: /cut off/i.test(text) ? "max_tokens" : "end_turn", stop_sequence: null, stop_details: null },
+        : { stop_reason: !titleRequest && /cut off/i.test(text) ? "max_tokens" : "end_turn", stop_sequence: null, stop_details: null },
       usage: { output_tokens: words.length + 12 },
     });
     sse(res, "message_stop", { type: "message_stop" });
