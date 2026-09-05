@@ -95,7 +95,6 @@ export function Chat({ models, defaultModelId }: ChatProps) {
   const [query, setQuery] = useState("");
   const [rename, setRename] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const modelMenuRef = useRef<HTMLDetailsElement>(null);
   const { theme, setTheme } = useTheme();
   const model = models.find((item) => item.id === modelId) ?? models[0];
   const { messages, isStreaming, send, stop, reset, retry, load } =
@@ -184,6 +183,13 @@ export function Chat({ models, defaultModelId }: ChatProps) {
     void send(draft);
     setDraft("");
   }
+  function selectModel(nextModelId: string) {
+    if (isStreaming) return;
+    const next = models.find((item) => item.id === nextModelId);
+    if (!next) return;
+    setModelId(next.id);
+    setMaxOutputTokens((value) => Math.min(value, next.maxOutputTokens));
+  }
   function exportConversation() {
     const text = `# ${conversationTitle}\n\n${messages
       .map(
@@ -222,21 +228,11 @@ export function Chat({ models, defaultModelId }: ChatProps) {
       }
       if (event.key === "Escape") {
         setMobileOpen(false);
-        if (modelMenuRef.current) modelMenuRef.current.open = false;
       }
     };
-    const onPointer = (event: PointerEvent) => {
-      if (
-        modelMenuRef.current &&
-        !modelMenuRef.current.contains(event.target as Node)
-      )
-        modelMenuRef.current.open = false;
-    };
     document.addEventListener("keydown", onKey);
-    document.addEventListener("pointerdown", onPointer);
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.removeEventListener("pointerdown", onPointer);
     };
   }, []);
 
@@ -351,94 +347,20 @@ export function Chat({ models, defaultModelId }: ChatProps) {
       <main className="chat-main">
         <header className="chat-header">
           <button
-            className="icon-button desktop-expand"
+            className="header-sidebar-toggle desktop-expand"
             onClick={() => setSidebarClosed(false)}
-            aria-label="Expand sidebar"
+            aria-label="Expand chats sidebar"
           >
-            <Icon name="sidebar" />
+            Chats
           </button>
           <button
-            className="icon-button mobile-menu"
+            className="header-sidebar-toggle mobile-menu"
             onClick={() => setMobileOpen(true)}
-            aria-label="Open sidebar"
+            aria-label="Open chats sidebar"
           >
-            <Icon name="sidebar" />
+            Chats
           </button>
-          <details className="model-menu" ref={modelMenuRef}>
-            <summary aria-label="Choose model">
-              <span>Zeus Chat</span>
-              <Icon name="chevronDown" size={18} />
-              <span className="header-model">
-                {model?.displayName ?? "Choose a model"}
-              </span>
-            </summary>
-            <div className="model-popover">
-              <p className="popover-label">Choose your model</p>
-              {models.map((item) => (
-                <button
-                  key={item.id}
-                  disabled={isStreaming}
-                  className="model-option"
-                  onClick={() => {
-                    setModelId(item.id);
-                    setMaxOutputTokens((value) =>
-                      Math.min(value, item.maxOutputTokens),
-                    );
-                    if (modelMenuRef.current) modelMenuRef.current.open = false;
-                  }}
-                >
-                  <span className="model-icon">
-                    <Icon name="sparkles" />
-                  </span>
-                  <span>
-                    <strong>{item.displayName}</strong>
-                    <small>
-                      {item.available
-                        ? "Ready for your next idea"
-                        : "Connection required"}
-                    </small>
-                  </span>
-                  {item.id === modelId && <Icon name="check" size={17} />}
-                </button>
-              ))}
-              <button
-                className="popover-settings"
-                onClick={() => {
-                  if (modelMenuRef.current) modelMenuRef.current.open = false;
-                  setDialog("settings");
-                }}
-              >
-                <Icon name="sliders" size={16} /> Model settings
-              </button>
-            </div>
-          </details>
-          <div className="header-actions">
-            {!isEmpty && (
-              <button
-                className="icon-button"
-                onClick={exportConversation}
-                aria-label="Export conversation as Markdown"
-                title="Export conversation"
-              >
-                <Icon name="download" size={19} />
-              </button>
-            )}
-            <button
-              className="icon-button theme-toggle"
-              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
-              title={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
-            >
-              <Icon name={theme === "light" ? "moon" : "sun"} size={19} />
-            </button>
-            <button
-              className="header-avatar"
-              onClick={() => setDialog("settings")}
-              aria-label="Open settings"
-            >
-              Z
-            </button>
-          </div>
+          <span className="chat-brand">Zeus Chat</span>
         </header>
 
         {!isEmpty && (
@@ -453,20 +375,10 @@ export function Chat({ models, defaultModelId }: ChatProps) {
               }}
             >
               {conversationTitle}
-              <Icon name="pen" size={13} />
             </button>
             {totalTokens > 0 && (
               <span>{totalTokens.toLocaleString()} tokens</span>
             )}
-            <button
-              className="icon-button"
-              disabled={isStreaming}
-              aria-label="Delete conversation"
-              title="Delete conversation"
-              onClick={() => setDialog("delete")}
-            >
-              <Icon name="trash" size={15} />
-            </button>
           </div>
         )}
 
@@ -516,6 +428,9 @@ export function Chat({ models, defaultModelId }: ChatProps) {
               streaming={isStreaming}
               available={available}
               effort={effort}
+              models={models}
+              modelId={modelId}
+              onModelChange={selectModel}
               inputRef={inputRef}
             />
             {isEmpty && (
@@ -624,16 +539,7 @@ export function Chat({ models, defaultModelId }: ChatProps) {
               <select
                 value={modelId}
                 disabled={isStreaming}
-                onChange={(event) => {
-                  setModelId(event.target.value);
-                  const next = models.find(
-                    (item) => item.id === event.target.value,
-                  );
-                  if (next)
-                    setMaxOutputTokens((value) =>
-                      Math.min(value, next.maxOutputTokens),
-                    );
-                }}
+                onChange={(event) => selectModel(event.target.value)}
               >
                 {models.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -721,6 +627,28 @@ export function Chat({ models, defaultModelId }: ChatProps) {
                 </button>
               </div>
             </div>
+            {!isEmpty && (
+              <div className="setting-field">
+                <span>Conversation</span>
+                <div className="conversation-settings-actions">
+                  <button
+                    className="secondary-button"
+                    onClick={exportConversation}
+                    aria-label="Export conversation as Markdown"
+                  >
+                    Export
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={isStreaming}
+                    aria-label="Delete conversation"
+                    onClick={() => setDialog("delete")}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
           <div className="dialog-actions">
             <span>
