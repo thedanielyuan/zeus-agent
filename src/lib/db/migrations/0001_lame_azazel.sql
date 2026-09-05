@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `refusal_details` text;

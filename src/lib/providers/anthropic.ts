@@ -101,21 +101,24 @@ export function mapError(err: unknown): MappedError {
     return { code: "rate_limit", message: "Rate limited by the provider. Try again shortly.", retryable: true, status: err.status };
   }
   if (err instanceof BadRequestError) {
-    return { code: "bad_request", message: err.message, retryable: false, status: err.status };
+    return { code: "bad_request", message: "The provider rejected this request. Check the conversation settings and try again.", retryable: false, status: err.status };
   }
   if (err instanceof APIConnectionError) {
     return { code: "network", message: "Could not reach the provider.", retryable: true };
   }
   if (err instanceof APIError) {
     const status = typeof err.status === "number" ? err.status : undefined;
+    if (status === 529) {
+      return { code: "overloaded", message: "The provider is overloaded. Try again shortly.", retryable: true, status };
+    }
     if (status !== undefined && status >= 500) {
       return { code: "server", message: "The provider returned a server error.", retryable: true, status };
     }
-    return { code: "unknown", message: err.message, retryable: false, status };
+    return { code: "unknown", message: "The provider could not complete this request.", retryable: false, status };
   }
   return {
     code: "unknown",
-    message: err instanceof Error ? err.message : String(err),
+    message: "The provider could not complete this request.",
     retryable: false,
   };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ulid } from "ulid";
 import { useChatStream, type UiMessage } from "@/hooks/use-chat-stream";
 import { useTheme } from "@/hooks/use-theme";
 import type { PublicModel } from "@/lib/models/registry";
@@ -87,7 +88,7 @@ export function Chat({ models, defaultModelId }: ChatProps) {
   const [maxOutputTokens, setMaxOutputTokens] = useState(64_000);
   const [draft, setDraft] = useState("");
   const [saved, setSaved] = useState<Conversation[]>([]);
-  const [activeId, setActiveId] = useState("new-chat");
+  const [activeId, setActiveId] = useState(() => ulid());
   const [title, setTitle] = useState("");
   const [sidebarClosed, setSidebarClosed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -98,7 +99,7 @@ export function Chat({ models, defaultModelId }: ChatProps) {
   const { theme, setTheme } = useTheme();
   const model = models.find((item) => item.id === modelId) ?? models[0];
   const { messages, isStreaming, send, stop, reset, retry, load } =
-    useChatStream({ modelId, system, effort, maxOutputTokens });
+    useChatStream({ conversationId: activeId, modelId, system, effort, maxOutputTokens });
   const available = model?.available ?? false;
   const isEmpty = messages.length === 0;
   const conversationTitle =
@@ -154,7 +155,7 @@ export function Chat({ models, defaultModelId }: ChatProps) {
     if (isStreaming) return;
     if (!isEmpty) {
       setSaved(conversations);
-      setActiveId(crypto.randomUUID());
+      setActiveId(ulid());
       reset();
       setTitle("");
     }
@@ -304,7 +305,7 @@ export function Chat({ models, defaultModelId }: ChatProps) {
       </div>
       <div className="sidebar-footer">
         <div className="session-note">
-          <span className="status-dot" /> Chats stay in this session
+          <span className="status-dot" /> History browsing is session-only
         </div>
         <button
           className="workspace-button"
@@ -704,8 +705,8 @@ export function Chat({ models, defaultModelId }: ChatProps) {
       {dialog === "delete" && (
         <Dialog title="Delete this chat?" onClose={closeDialog}>
           <p className="dialog-description">
-            “{conversationTitle}” will be removed from this session. You can
-            export a copy first.
+            “{conversationTitle}” will be removed from this session. Its saved
+            messages remain on this server. You can export a copy first.
           </p>
           <div className="dialog-actions">
             <button className="secondary-button" onClick={closeDialog}>
@@ -716,7 +717,7 @@ export function Chat({ models, defaultModelId }: ChatProps) {
               onClick={() => {
                 setSaved(conversations.filter((item) => item.id !== activeId));
                 reset();
-                setActiveId(crypto.randomUUID());
+                setActiveId(ulid());
                 setTitle("");
                 setDraft("");
                 closeDialog();

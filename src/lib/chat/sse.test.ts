@@ -71,7 +71,7 @@ describe("SSE encoding", () => {
     const { events } = parseSSE(await readAll(toSSEStream(broken(), { pingIntervalMs: 60_000 })));
     expect(events).toEqual([
       { type: "text_delta", text: "partial" },
-      { type: "error", code: "unknown", message: "boom", retryable: false },
+      { type: "error", code: "unknown", message: "The response could not be completed. Try again.", retryable: false },
     ]);
   });
 

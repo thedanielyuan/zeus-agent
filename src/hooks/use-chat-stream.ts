@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ulid } from "ulid";
 import { parseSSE } from "@/lib/chat/sse-parse";
 import type { ChatErrorCode } from "@/lib/errors";
 import type {
   ChatEvent,
-  ChatMessage,
   Effort,
   RefusalDetails,
   StopReason,
@@ -30,14 +30,12 @@ export interface UiMessage {
 }
 
 export interface ChatSettings {
+  conversationId: string;
   modelId: string;
   system?: string;
   effort?: Effort;
   maxOutputTokens?: number;
 }
-
-let counter = 0;
-const nextId = () => `${Date.now().toString(36)}-${(counter++).toString(36)}`;
 
 export function useChatStream(settings: ChatSettings) {
   const [messages, setMessages] = useState<UiMessage[]>([]);
@@ -70,20 +68,20 @@ export function useChatStream(settings: ChatSettings) {
   );
 
   const sendTurn = useCallback(
-    async (content: string, previous: UiMessage[]) => {
+    async (content: string, previous: UiMessage[], retryMessage?: UiMessage) => {
       const text = content.trim();
       if (!text || abortRef.current) return;
 
-      const { modelId, system, effort, maxOutputTokens } = settingsRef.current;
-      const userMsg: UiMessage = {
-        id: nextId(),
+      const { conversationId, modelId, system, effort, maxOutputTokens } = settingsRef.current;
+      const userMsg: UiMessage = retryMessage ?? {
+        id: ulid(),
         role: "user",
         content: text,
         thinking: "",
         status: "complete",
         createdAt: Date.now(),
       };
-      const assistantId = nextId();
+      let assistantId = ulid();
       const assistantMsg: UiMessage = {
         id: assistantId,
         role: "assistant",
@@ -94,12 +92,8 @@ export function useChatStream(settings: ChatSettings) {
         createdAt: Date.now(),
       };
 
-      // Build the provider history from what the model is allowed to see.
-      const history: ChatMessage[] = previous
-        .filter((m) => m.status === "complete" || m.status === "interrupted")
-        .filter((m) => m.content.length > 0)
-        .map((m) => ({ role: m.role, content: m.content }));
-      history.push({ role: "user", content: text });
+      // Previous messages are for display only. The server rebuilds trusted
+      // provider context from SQLite, including the correct Retry suffix.
       replaceMessages([...previous, userMsg, assistantMsg]);
 
       const abort = new AbortController();
@@ -163,7 +157,9 @@ export function useChatStream(settings: ChatSettings) {
           case "error":
             finish((m) => ({
               ...m,
-              status: "error",
+              status: event.code === "timeout" || event.code === "network" ? "interrupted" : "error",
+              stopReason: "error",
+              usage: event.code === "timeout" || event.code === "network" ? undefined : m.usage,
               error: {
                 code: event.code,
                 message: event.message,
@@ -181,11 +177,14 @@ export function useChatStream(settings: ChatSettings) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            conversationId,
+            userMessageId: userMsg.id,
+            action: retryMessage ? "retry" : "send",
+            content: text,
             modelId,
             system: system || undefined,
             effort,
             maxOutputTokens,
-            messages: history,
           }),
           signal: abort.signal,
         });
@@ -194,6 +193,7 @@ export function useChatStream(settings: ChatSettings) {
           const err = (await res.json().catch(() => null)) as {
             code?: string;
             message?: string;
+            retryable?: boolean;
           } | null;
           finish((m) => ({
             ...m,
@@ -201,41 +201,52 @@ export function useChatStream(settings: ChatSettings) {
             error: {
               code: err?.code ?? "unknown",
               message: err?.message ?? `Request failed (${res.status})`,
-              retryable: res.status >= 500,
+              retryable: err?.retryable ?? res.status >= 500,
             },
           }));
           return;
         }
 
+        const storedId = res.headers.get("X-Assistant-Message-Id");
+        if (storedId) {
+          patch(assistantId, (m) => ({ ...m, id: storedId }));
+          assistantId = storedId;
+        }
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const parsed = parseSSE(buffer);
-          buffer = parsed.rest;
-          for (const event of parsed.events) apply(event);
+        try {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parsed = parseSSE(buffer);
+            buffer = parsed.rest;
+            for (const event of parsed.events) apply(event);
+          }
+        } finally {
+          reader.releaseLock();
         }
         // A stream that ended without a terminal frame was cut off.
         finish((m) =>
-          m.status === "streaming" ? { ...m, status: "interrupted" } : m,
+          m.status === "streaming" ? { ...m, status: "interrupted", usage: undefined } : m,
         );
-      } catch (err) {
+      } catch {
         if (abort.signal.aborted) {
-          finish((m) => ({
+          finish((m) => m.status !== "streaming" ? m : ({
             ...m,
             status: "interrupted",
             stopReason: "cancelled",
+            usage: undefined,
           }));
         } else {
-          finish((m) => ({
+          finish((m) => m.status !== "streaming" ? m : ({
             ...m,
-            status: "error",
+            status: "interrupted",
+            usage: undefined,
             error: {
               code: "network",
-              message: err instanceof Error ? err.message : "Network error",
+              message: "The connection ended before the reply finished. Try again.",
               retryable: true,
             },
           }));
@@ -259,7 +270,7 @@ export function useChatStream(settings: ChatSettings) {
       (message) => message.role === "user",
     );
     if (userIndex >= 0)
-      return sendTurn(current[userIndex].content, current.slice(0, userIndex));
+      return sendTurn(current[userIndex].content, current.slice(0, userIndex), current[userIndex]);
   }, [sendTurn]);
 
   const load = useCallback(
